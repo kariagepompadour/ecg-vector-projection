@@ -1,4 +1,6 @@
-# ECG Vector Projection
+# ECG in Motion
+
+*From Einthoven’s triangle to all 12 leads, with one arrow* (repository name: `ecg-vector-projection`; formerly titled “ECG Vector Projection”)
 
 [日本語版 (README_JA.md)](README_JA.md) · The page is bilingual: it opens in your browser's language, and the switch at the top right (next to the screen tabs) changes it (`?lang=en` / `?lang=ja` also works).
 
@@ -17,9 +19,12 @@ Open `index.html` in a browser, or serve the folder (GitHub Pages works). No ins
 - **Trace through time:** drag the tip of the vector along its loop. Only the time changes, so the 12-lead cursor follows the finger.
 - **Edit the arrow (advanced):** build a vector that none of the cases has, by direction, size and front-back component, and see all 12 leads recomputed.
 - **ST vector shadow:** in the MI cases, the *Show the ST vector* button jumps to the ST segment (the right bundle branch block case has one for its terminal vector), and a card lists which leads show ST elevation and which show the reciprocal depression, computed from the same single arrow (thresholds inside the model, not clinical ST criteria).
+- **Frontal-plane landmarks:** each limb lead shows its angle (I 0°, II +60° and so on), and bands mark the inferior (II, III, aVF) and lateral (I, aVL) leads.
+- **How excitation spreads, and the ECG waves** (on the *Vector & controls* screen, below *About this tool*; tap the heading to open or close it): the same heart links the sinus node and atria to the P wave, the AV node and His bundle to the PQ segment, and the bundle branches, Purkinje fibres and ventricles to the QRS complex and T wave. It can be saved as an image.
 - **Quick quiz** (its own *Quiz* screen): (1) given an arrow, mark ↑ / = / ↓ for each limb lead (after checking, choose a lead to see a perpendicular from the arrow tip to its axis); (2) given an ST pattern, choose which of the model's four MI cases produces it. Good for checking whether the staff can think from the vector.
 - **Four screens:** *All at once* (it opens first, so nothing is missed), *Vector & controls*, *ECG & notes* and *Quiz*. On a computer you can open the last three in separate windows (for example on two monitors); the windows stay in sync.
-- A small figure at the top right of each plane shows the viewing direction (front view for the frontal plane, from the feet for the horizontal plane). In 3D, a small body figure turns with the view. While the tip is returning toward the centre, a small triangle just behind it shows the direction of time.
+- A small figure at the top right of each plane shows the viewing direction. The horizontal plane switches between *From head* (the traditional ECG view, back at the top) and *From feet* (the CT / anatomy view, front at the top). In 3D, a small body figure turns with the view. While the tip is returning toward the centre, a small triangle just behind it shows the direction of time.
+- Press *Show waveforms* in the frontal or horizontal plane header to put a small one-beat waveform at the end of each lead axis (in a row for the chest leads). You can see at a glance which lead gives which waveform. Within a plane, all waveforms share one scale, so their sizes can be compared.
 - On a phone the screens are stacked and each plane is a tab. Tap a lead trace to enlarge it.
 
 **Teaching it?** See the [teaching guide](GUIDE.md): a 30-minute session plan with questions and answers.

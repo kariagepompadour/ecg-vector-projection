@@ -1,4 +1,4 @@
-# Teaching Guide: ECG Vector Projection (for the instructor)
+# Teaching Guide: ECG in Motion (for the instructor)
 
 [日本語版 (GUIDE_JA.md)](GUIDE_JA.md) · [README.md](README.md)
 
@@ -26,8 +26,12 @@ By the end, learners should be able to say:
 - Point to the frontal plane (limb leads), the horizontal plane (chest leads), the 3D view and the 12-lead tracing.
 - Say only this: when the arrow points close to a lead's axis, that lead goes up (positive); when it points away, it goes down (negative).
 - The segments (P, QRS, ST-T) are color-coded. ST-T groups the ventricular recovery (repolarization) into one segment.
-- Use the small figure at the top right of each plane to check the viewing direction. The frontal plane is a front view; the horizontal plane is seen from the feet (the same orientation as CT images). In both, the patient's left (L) is on the right of the screen. In the 3D view, the small body figure at the top right turns with the view when you drag.
+- Use the small figure at the top right of each plane to check the viewing direction. The frontal plane is a front view. The horizontal plane can be switched with the buttons next to its title between *From head* and *From feet* (it starts with *From head*). In every view, the patient's left (L) is on the right of the screen.
+- The two horizontal views are a good teaching point. *From head* (back at the top, front at the bottom) is the traditional ECG / vectorcardiogram view and matches the frontal-plane convention (+90° = down). *From feet* (front at the top) is the imaging and anatomy view used for CT sections. The same section appears upside down between the two, so teach learners to check first which way a figure is viewed. In the 3D view, the small body figure at the top right turns with the view when you drag.
+- To show everything at once, press *Show waveforms*. A one-beat waveform appears at the end of each lead axis, so learners can see at a glance that leads pointing closer to the vector show larger upward deflections. It works well to leave it off at first, trace the arrow one lead at a time, and then turn it on.
 - The thick arrow is the heart's instantaneous vector. It always points from the centre to the tip. While the tip is returning toward the centre, a small triangle just behind it shows the direction of time.
+
+- The figure *How excitation spreads through the heart, and the ECG waves*, below *About this tool* on the *Vector & controls* screen (on a phone, tap the heading to open it), shows which part of the heart each wave comes from (P, PQ segment, QRS, T). Showing it first makes the rest easier to follow.
 
 ### 1. Normal: see one arrow (5 min)
 
