@@ -1,0 +1,1485 @@
+<!DOCTYPE html>
+<html lang="ja" data-lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>心電図ベクトル射影 / ECG Vector Projection</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+JP:wght@400;500;700&family=Zen+Kaku+Gothic+New:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* layout: controls on top; wide screens = frontal | horizontal | 3D side by side, then 12 lead traces full width; phones = one plane + its 6 leads, switched by tabs */
+:root{
+  --bg:#eef2f2; --surface:#ffffff; --ink:#13222c; --muted:#5a6b75; --line:#d5dfe1;
+  --accent:#c21f4f; --teal:#14808a; --amber:#b2741a;
+  --grid-minor:#f4e1e5; --grid-major:#e8bfc9;
+  --font-display:"Zen Kaku Gothic New","Noto Sans JP",system-ui,sans-serif;
+  --font-body:"Noto Sans JP",system-ui,sans-serif;
+  --font-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0e1519; --surface:#151e24; --ink:#e4ecef; --muted:#8fa1aa; --line:#27363e;
+    --accent:#ff6f93; --teal:#4fc3cc; --amber:#e2a54a;
+    --grid-minor:#1b282f; --grid-major:#2b4048;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0e1519; --surface:#151e24; --ink:#e4ecef; --muted:#8fa1aa; --line:#27363e;
+  --accent:#ff6f93; --teal:#4fc3cc; --amber:#e2a54a;
+  --grid-minor:#1b282f; --grid-major:#2b4048;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:15px;line-height:1.7}
+.wrap{max-width:1200px;margin:0 auto;padding:20px 16px 40px;display:flex;flex-direction:column;gap:14px}
+.eyebrow{margin:0;font:500 12px var(--font-mono);color:var(--muted);letter-spacing:.04em}
+h1{margin:2px 0 6px;font:700 clamp(24px,5vw,34px)/1.25 var(--font-display);text-wrap:balance}
+h2{margin:0 0 8px;font:700 15px var(--font-display)}
+.lede{margin:0;max-width:62ch;color:var(--ink)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+button{font:inherit;color:inherit}
+.chip,.seg button,.btn{min-height:40px;padding:6px 14px;border:1px solid var(--line);background:var(--surface);border-radius:999px;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+button:focus-visible,input:focus-visible,canvas:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.controls{display:flex;flex-direction:column;gap:10px}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden}
+.seg button{border:0;border-radius:0;min-height:38px}
+.seg button[aria-pressed="true"]{background:var(--accent);color:#fff}
+.seg.tabs button[aria-pressed="true"]{background:var(--ink);color:var(--surface)}
+.btn{border-radius:8px;font-weight:500}
+.btn.sub{min-height:34px;padding:3px 12px;font-size:13px;color:var(--muted);border-style:dashed}
+.btn.sub[aria-pressed="true"]{background:var(--ink);color:var(--surface);border-style:solid}
+.slider{display:flex;align-items:center;gap:10px;flex:1 1 220px;min-width:200px}
+.slider label{font:500 12px var(--font-mono);color:var(--muted);white-space:nowrap;min-width:5.5em}
+.slider input{flex:1;accent-color:var(--accent);min-height:32px}
+.slider output{font:500 13px var(--font-mono);min-width:4.5em;text-align:right}
+.hint{margin:0;font-size:13px;color:var(--muted);max-width:70ch}
+.grid{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;scroll-margin-top:6px}
+.planes{display:flex;flex-direction:column;gap:14px;min-width:0}
+.narrow-only{display:none}
+@media (min-width:820px){.grid{grid-template-columns:minmax(0,1fr)}.planes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-items:stretch}}
+.cvwrap{width:100%;overflow:hidden}
+canvas{display:block;max-width:100%}
+#traces{cursor:pointer}
+#front,#horiz{touch-action:pan-y;border-radius:6px;margin:0 auto}
+#d3{touch-action:none;cursor:grab;border-radius:6px;margin:0 auto}
+#d3:active{cursor:grabbing}
+.hint.sm{font-size:12px;margin-top:4px;text-align:center}
+.d3bar{display:flex;gap:8px 10px;align-items:center;justify-content:center;flex-wrap:wrap;margin-top:6px}
+.d3bar .btn{min-height:34px;padding:4px 12px;font-size:13px}
+.chd{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px}
+.chd h2{margin:0}
+.chd .btn{min-height:30px;padding:2px 10px;font-size:12px}
+@media (max-width:819px){.chd{justify-content:flex-end;margin:0 0 4px}}
+#front.manual,#horiz.manual{touch-action:none;cursor:grab}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;margin:0 0 8px;font-size:12px;color:var(--muted)}
+.legend i{display:inline-block;width:18px;height:3px;border-radius:2px;vertical-align:middle;margin-right:5px}
+.legend b{display:inline-block;width:9px;height:9px;border-radius:50%;vertical-align:middle;margin-right:5px;border:1.5px solid var(--ink)}
+.legend b.on{background:var(--ink)}
+.read{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px}
+.read div{border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+.read small{display:block;font:500 11px var(--font-mono);color:var(--muted)}
+.read strong{font:500 15px var(--font-mono)}
+.read .wide{grid-column:1/-1}
+.notes ul{margin:0;padding-left:1.2em;display:flex;flex-direction:column;gap:6px;max-width:70ch}
+.notes h2 span{font:500 12px var(--font-mono);color:var(--muted);margin-left:8px}
+footer{color:var(--muted);font-size:13px;max-width:70ch}
+@media (min-width:820px){
+  .cols2{columns:2;column-gap:32px;max-width:none!important}
+  ul.cols2{display:block!important}
+  #read{grid-template-columns:repeat(auto-fill,minmax(170px,1fr))}
+  #read .wide{grid-column:auto}
+  #read strong{font-size:14px;line-height:1.45;display:block}
+  ul.cols2{padding-left:0!important}
+  ul.cols2 li{break-inside:avoid;margin:0 0 6px 1.2em}
+}
+html[data-lang="ja"] [lang="en"],html[data-lang="en"] [lang="ja"]{display:none}
+#qDial{display:block;margin:6px auto}
+.qLeads{display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:6px;max-width:720px;margin:8px auto}
+.qLeads button,.qOpts button{min-height:42px;padding:4px 8px;border:1px solid var(--line);background:var(--surface);border-radius:8px;cursor:pointer;font:500 14px var(--font-mono)}
+.qLeads button.ok,.qOpts button.ok{border-color:var(--teal);box-shadow:inset 0 0 0 1px var(--teal)}
+.qLeads button.sel{background:var(--ink);color:var(--surface)}
+.qLeads button.bad,.qOpts button.bad{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.qOpts{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
+.qOpts button{font-family:var(--font-body);font-size:14px;min-height:40px;padding:6px 14px}
+.qRes{margin:8px 0 0;font-size:14px;max-width:70ch}
+.qBtns{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.top{margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:8px 14px;flex-wrap:wrap}
+.langs{display:inline-flex;gap:0;border:1px solid var(--line);border-radius:999px;overflow:hidden}
+.langs button{border:0;border-radius:0;min-height:30px;padding:2px 12px;font-size:12px;background:var(--surface);cursor:pointer}
+.langs button[aria-pressed="true"]{background:var(--ink);color:var(--surface)}
+/* three screens: ctl / vec / ecg (+ "all") */
+.screens{display:flex;gap:8px 14px;flex-wrap:wrap;align-items:center}
+.scr{display:none;flex-direction:column;gap:14px;min-width:0}
+body[data-scr="vec"] #scrVec,body[data-scr="ecg"] #scrEcg,body[data-scr="quiz"] #scrQuiz,body[data-scr="all"] .scr{display:flex}
+body.solo .screens .seg,body.solo .screens .pop{display:none}
+.tbar{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--bg);padding:6px 2px;border-bottom:1px solid var(--line)}
+.ctlT{display:contents}
+body[data-mode="manual"] .tbar .ctlT{display:none}
+body[data-scr="all"] .tbar{display:none}
+.tbar .tScrub{flex:1 1 160px;min-width:120px;accent-color:var(--accent);min-height:30px}
+.tbar .btn{min-height:34px;padding:3px 12px;font-size:13px}
+.tbar output{font:500 12px var(--font-mono);color:var(--muted);min-width:4.2em;text-align:right}
+.caseTag{font:500 12px var(--font-mono);color:var(--muted)}
+.pop{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+.pop .btn{min-height:30px;padding:2px 10px;font-size:12px}
+#linkBadge{position:fixed;right:10px;bottom:10px;z-index:9;font:500 12px var(--font-mono);background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:4px 10px;color:var(--muted)}
+@media (max-width:819px){
+  #screenTabs .seg{display:flex;width:100%}
+  #screenTabs .seg button{flex:1 1 auto;padding:6px 6px;font-size:12.5px;white-space:nowrap}
+  .wrap{padding:10px 10px 32px;gap:10px}
+  .scr{gap:10px}
+  .card{padding:10px}
+  .grid,.planes{gap:10px}
+  .hd{display:none}
+  .narrow-only{display:inline-flex}
+  .grid[data-view="front"] #cardH,.grid[data-view="front"] #cardD{display:none}
+  .grid[data-view="horiz"] #cardF,.grid[data-view="horiz"] #cardD{display:none}
+  .grid[data-view="d3"] #cardF,.grid[data-view="d3"] #cardH{display:none}
+}
+</style>
+</head>
+<body>
+<main class="wrap">
+  <nav class="screens" id="screenTabs" aria-label="画面の切り替え" data-en-aria="Switch screen">
+    <div class="seg" role="group" aria-label="画面" data-en-aria="Screen">
+      <button type="button" data-s="all" aria-pressed="true"><span lang="ja">まとめて</span><span lang="en">All at once</span></button>
+      <button type="button" data-s="vec" aria-pressed="false"><span lang="ja">ベクトル・操作</span><span lang="en">Vector &amp; controls</span></button>
+      <button type="button" data-s="ecg" aria-pressed="false"><span lang="ja">心電図・解説</span><span lang="en">ECG &amp; notes</span></button>
+      <button type="button" data-s="quiz" aria-pressed="false"><span lang="ja">確認クイズ</span><span lang="en">Quiz</span></button>
+    </div>
+    <div class="pop" id="pop" hidden><span><span lang="ja">別ウィンドウで開く：</span><span lang="en">Open in a new window:</span></span><button type="button" class="btn" data-pop="vec"><span lang="ja">ベクトル・操作</span><span lang="en">Vector &amp; controls</span></button><button type="button" class="btn" data-pop="ecg"><span lang="ja">心電図・解説</span><span lang="en">ECG &amp; notes</span></button><button type="button" class="btn" data-pop="quiz"><span lang="ja">確認クイズ</span><span lang="en">Quiz</span></button></div>
+    <div class="langs" style="margin-left:auto" id="langs" role="group" aria-label="言語 / Language"><button type="button" data-setlang="ja" aria-pressed="true">日本語</button><button type="button" data-setlang="en" aria-pressed="false">English</button></div>
+  </nav>
+
+  <div class="scr" id="scrVec">
+  <header>
+    <p class="eyebrow"><span lang="ja">前額面 + 水平面 + 3D / 12誘導</span><span lang="en">Frontal + horizontal + 3D / 12 leads</span></p>
+    <h1><span lang="ja">心電図ベクトル射影</span><span lang="en">ECG Vector Projection</span></h1>
+  </header>
+
+  <section class="card"><h2><span lang="ja">このツールについて</span><span lang="en">About this tool</span></h2>
+    <p class="lede cols2" style="margin:0"><span lang="ja">心臓の起電力を1本の矢印（ベクトル）とみなすと、各誘導の波形は、その矢印を誘導軸に落とした「影」です。前額面では肢誘導、水平面では胸部誘導（V1〜V6）が決まります。症例を選ぶと、ひとつのベクトルの動きから12誘導の波形が決まる様子が見えます。</span><span lang="en">If you treat the heart’s electromotive force as a single arrow (vector), the waveform in each lead is the “shadow” of that arrow cast onto the lead axis. On the frontal plane this fixes the limb leads; on the horizontal plane, the chest leads (V1–V6). Choose a case to see how the movement of one vector determines all 12 leads.</span></p>
+  </section>
+
+  <nav class="chips" id="chips" aria-label="症例の選択" data-en-aria="Choose a case"></nav>
+
+  <section class="card controls" aria-label="操作" data-en-aria="Controls">
+    <div class="row">
+      <div class="seg" role="group" aria-label="表示モード" data-en-aria="Display mode">
+        <button type="button" id="mPlay" aria-pressed="true"><span lang="ja">波形を再生</span><span lang="en">Play waveform</span></button>
+        <button type="button" id="mTrace" aria-pressed="false"><span lang="ja">時刻をなぞる</span><span lang="en">Trace through time</span></button>
+      </div>
+      <button type="button" class="btn sub" id="mManual" aria-pressed="false" title="症例にない向き・大きさのベクトルを自分で作って試すときに使います" data-en-title="Use this to build a vector with a direction or size that none of the cases have, and try it."><span lang="ja">矢印を編集（応用）</span><span lang="en">Edit the arrow (advanced)</span></button>
+      <button type="button" class="btn" id="playBtn">一時停止</button>
+      <button type="button" class="btn" id="stJump" hidden></button>
+      <button type="button" class="btn" id="resetBtn" hidden><span lang="ja">元の波形に戻す</span><span lang="en">Back to the original waveform</span></button>
+      <div class="slider" id="speed"><label for="spSl"><span lang="ja">速さ</span><span lang="en">Speed</span></label><input type="range" id="spSl" min="-1.7" max="0" step="0.02" value="-1"><output id="spOut">0.10×</output></div>
+    </div>
+    <div class="row" id="ctlPlay">
+      <div class="slider"><label for="scrub"><span lang="ja">時刻</span><span lang="en">Time</span></label><input type="range" id="scrub" min="0" max="2400" step="1" value="250"><output id="scrubOut">250 ms</output></div>
+    </div>
+    <p class="hint cols2" id="tHint" hidden><span lang="ja">矢印を動かして決めたベクトルの運動を、そのまま使います（ここでは向きは変わりません）。前額面か水平面の図で、軌跡（ループ）に沿って先端を指でなぞると、時刻がその位置に進み、12誘導の波形のカーソルも同じ時刻に動きます。</span><span lang="en">This uses the vector motion you set by moving the arrow, unchanged (the direction does not change here). On the frontal or horizontal plane, drag the tip along the trajectory (loop) with your finger: the time moves to that point, and the cursor on the 12-lead tracing moves to the same time.</span></p>
+    <div class="row" id="ctlSel" hidden>
+      <div class="seg" role="group" aria-label="動かす波" data-en-aria="Wave to move" id="waveSel">
+        <button type="button" data-g="P" aria-pressed="false"><span lang="ja">P波</span><span lang="en">P wave</span></button>
+        <button type="button" data-g="QRS" aria-pressed="true">QRS</button>
+        <button type="button" data-g="T" aria-pressed="false">ST-T</button>
+      </div>
+    </div>
+    <p class="hint cols2" id="mHint" hidden><span lang="ja">矢印は、下の図の上を指（マウス）でなぞって動かせます。数値で動かすときは、このスライダーを使います。選んだ波（P波・QRS・ST-T）の3次元ベクトルを、矢印の位置に合わせて回転・拡大縮小し、12誘導の波形を計算し直しています。前額面では左右・上下、水平面では左右・前後が動きます。ほかの2つの波の先端は、小さな丸で残ります。動かした内容は「波形を再生」に切り替えても残り、「元の波形に戻す」で症例の元の波形に戻ります。</span><span lang="en">Drag over the figures below with your finger (or mouse) to move the arrow. To set it by number, use these sliders. The 3D vector of the selected wave (P, QRS or ST-T) is rotated and scaled to follow the arrow, and the 12-lead waveforms are recomputed. On the frontal plane left–right and up–down move; on the horizontal plane left–right and front–back move. The tips of the other two waves stay as small circles. Your changes remain when you switch back to “Play waveform”, and “Back to the original waveform” restores the case’s own waveform.</span></p>
+    <div class="row" id="ctlManual" hidden>
+      <div class="slider"><label for="angSl"><span lang="ja">向き(前額面)</span><span lang="en">Direction (frontal)</span></label><input type="range" id="angSl" min="-180" max="180" step="1" value="60"><output id="angOut">60°</output></div>
+      <div class="slider"><label for="magSl"><span lang="ja">大きさ(前額面)</span><span lang="en">Size (frontal)</span></label><input type="range" id="magSl" min="0" max="1.5" step="0.01" value="1"><output id="magOut">1.00</output></div>
+      <div class="slider"><label for="zSl"><span lang="ja">前後成分</span><span lang="en">Front–back</span></label><input type="range" id="zSl" min="-1.5" max="1.5" step="0.01" value="0"><output id="zOut">0.00</output></div>
+    </div>
+  </section>
+
+  <section class="grid" id="grid" data-view="front">
+    <div class="seg tabs narrow-only" role="group" aria-label="表示する面" data-en-aria="Plane to show" id="viewSel">
+      <button type="button" data-v="front" aria-pressed="true"><span lang="ja">前額面</span><span lang="en">Frontal</span></button>
+      <button type="button" data-v="horiz" aria-pressed="false"><span lang="ja">水平面</span><span lang="en">Horizontal</span></button>
+      <button type="button" data-v="d3" aria-pressed="false">3D</button>
+    </div>
+    <div class="planes">
+      <div class="card" id="cardF">
+        <h2 class="hd"><span lang="ja">前額面（肢誘導）</span><span lang="en">Frontal plane (limb leads)</span></h2>
+        <div class="cvwrap" id="fwrap"><canvas id="front" role="img" aria-label="前額面の六軸系。心臓の模式図の上に、心起電力ベクトルの矢印と、各肢誘導軸への射影が描かれる" data-en-aria="Hexaxial system on the frontal plane. The heart’s electromotive-force vector arrow and its projection on each limb-lead axis are drawn over a schematic heart."></canvas></div>
+      </div>
+      <div class="card" id="cardH">
+        <h2 class="hd"><span lang="ja">水平面（胸部誘導）</span><span lang="en">Horizontal plane (chest leads)</span></h2>
+        <div class="cvwrap" id="hwrap"><canvas id="horiz" role="img" aria-label="水平面。上が前、右が患者の左。V1からV6の誘導軸と、心起電力ベクトルの矢印、各誘導軸への射影が描かれる" data-en-aria="Horizontal plane. Anterior is up and the patient’s left is to the right. The V1–V6 lead axes, the vector arrow and its projection on each lead axis are drawn."></canvas></div>
+      </div>
+      <div class="card" id="cardD">
+        <div class="chd"><h2 class="hd"><span lang="ja">3D（斜めから）</span><span lang="en">3D (oblique view)</span></h2><button type="button" class="btn" id="d3Reset"><span lang="ja">視点を戻す</span><span lang="en">Reset view</span></button></div>
+        <div class="cvwrap" id="dwrap"><canvas id="d3" role="img" aria-label="3次元表示。前額面と水平面の円盤と各誘導軸、心起電力ベクトルの矢印、その2つの面への影が描かれる。ドラッグで視点を回転できる" data-en-aria="3D view. Discs for the frontal and horizontal planes, each lead axis, the vector arrow and its shadows on the two planes are drawn. Drag to rotate the view."></canvas></div>
+        <div class="d3bar"><p class="hint sm" style="margin:0"><span lang="ja">ドラッグで視点を回転。点線は各面への影（射影）。</span><span lang="en">Drag to rotate. Dotted lines are the shadows (projections) on each plane.</span></p></div>
+      </div>
+    </div>
+  </section>
+  <footer class="cols2">
+    <span lang="ja">教育用の理想化モデルです。実測の心電図ではなく、各誘導を単位長の軸への射影として扱っています。水平面の誘導軸は、左を0°、前を90°として、V1=115°、V2=90°、V3=65°、V4=45°、V5=20°、V6=0° と仮定しました。実際の胸部誘導は、心臓との距離による近接効果や体格、電極位置の影響を受けます。この模型では、胸部誘導の振れを一律1.8倍にして、近接効果の代わりにしています。心臓の模式図で光る部位は、波形の区間に対応する既知の興奮順序を示す目安で、実際の局在ではありません。診断には使えません。</span><span lang="en">An idealized model for teaching, not a measured ECG: each lead is treated as a projection onto a unit-length axis. The horizontal-plane lead axes are assumed to be V1 = 115°, V2 = 90°, V3 = 65°, V4 = 45°, V5 = 20° and V6 = 0° (0° = left, 90° = anterior). Real chest leads are affected by proximity to the heart, body habitus and electrode position; this model multiplies chest-lead deflections uniformly by 1.8 as a stand-in for the proximity effect. The parts of the schematic heart that light up are a guide to the known activation sequence for each waveform segment, not an actual localization. It cannot be used for diagnosis.</span>
+  </footer>
+  </div>
+
+  <div class="scr" id="scrEcg">
+    <div class="tbar"><span class="caseTag"></span><span class="ctlT"><button type="button" class="btn tPlay">一時停止</button><input type="range" class="tScrub" min="0" max="800" step="1" value="0" aria-label="時刻" data-en-aria="Time"><output class="tOut">0 ms</output></span></div>
+    <div class="card" id="cardT">
+      <h2 class="hd" id="tTitle">12誘導の波形（左: 肢誘導 / 右: 胸部誘導）</h2>
+      <div class="cvwrap" id="twrap"><canvas id="traces" role="img" aria-label="I、II、III、aVR、aVL、aVF、V1からV6の波形" data-en-aria="Waveforms of I, II, III, aVR, aVL, aVF and V1–V6"></canvas></div>
+      <div class="slider" id="gainBox" style="margin-top:8px"><label for="gSl"><span lang="ja">振幅</span><span lang="en">Gain</span></label><input type="range" id="gSl" min="1" max="4" step="0.1" value="1.5"><output id="gOut">×1.5</output></div>
+      <p class="hint cols2" style="margin-top:8px"><span lang="ja">左が肢誘導、右が胸部誘導（V1〜V6）です（スマホでは12誘導を縦に並べます）。時間目盛りは心電図用紙に準じ（1目盛り=40 ms、太線=200 ms。縦軸は任意の倍率）、広い画面では2拍、スマホでは3拍を並べています。「振幅」で縦の拡大率を変えられます（大きすぎる波は行の枠で切れます）。波形をタップすると、その誘導を大きく表示します（P・QRS・ST-T の区間を色分け）。もう一度タップすると、全誘導に戻ります。</span><span lang="en">Limb leads are on the left and chest leads (V1–V6) on the right (on a phone the 12 leads are stacked vertically). The time scale follows ECG paper (1 small square = 40 ms, thick line = 200 ms; the vertical scale is arbitrary), with 2 beats on wide screens and 3 on a phone. “Gain” changes the vertical magnification (waves that are too large are clipped at the row frame). Tap a trace to enlarge that lead (the P, QRS and ST-T segments are color-coded). Tap again to return to all leads.</span></p>
+    </div>
+
+  <section class="card">
+    <p class="legend">
+      <span><i style="background:var(--amber)"></i>P</span>
+      <span><i style="background:var(--accent)"></i>QRS</span>
+      <span><i style="background:var(--teal)"></i>ST-T</span>
+      <span><b class="on"></b><span lang="ja">陽性（上向き）</span><span lang="en">Positive (upward)</span></span>
+      <span><b></b><span lang="ja">陰性（下向き）</span><span lang="en">Negative (downward)</span></span>
+    </p>
+    <div class="read" id="read"></div>
+  </section>
+
+  <section class="card notes">
+    <h2 id="nTitle">この症例の読み方</h2>
+    <ul id="notes" class="cols2"></ul>
+  </section>
+
+  <section class="card" id="stCard" hidden>
+    <h2><span lang="ja">ST部ベクトルの影</span><span lang="en">Shadow of the ST vector</span></h2>
+    <div class="read" id="stRead"></div>
+    <p class="hint cols2" style="margin-top:8px"><span lang="ja">ST部ベクトルは、小さな1本の矢印です。この矢印に近い向きを向く誘導では、ST上昇になります。反対側を向く誘導では、同じ矢印が逆向きに映り、ST下降になります。この模型では、このST下降が対側性変化（同じ矢印の影の裏側）です。ただし、実際のST下降には別の原因もあり、対側性変化が見えないこともあります。臨床では、症状などの情報と複数の誘導を合わせて判断します。上の一覧の上昇・下降は模型の中の目安で、臨床のST基準ではありません。「ST部ベクトルを見る」ボタンで、その時刻に移動できます。</span><span lang="en">The ST vector is one small arrow. Leads that face the direction it points show ST elevation. Leads on the opposite side see the same arrow pointing away, so they show ST depression. In this model, that depression is the reciprocal change (the other side of the same arrow’s shadow). In real patients, ST depression can have other causes, and a reciprocal change is not always visible; it is judged together with the clinical picture and several leads. The elevation and depression listed above are thresholds inside this model, not clinical ST criteria. The “Show the ST vector” button jumps to that moment.</span></p>
+  </section>
+
+
+
+  </div>
+
+  <div class="scr" id="scrQuiz">
+  <section class="card" id="quizCard">
+    <h2 id="qTitle"></h2>
+    <div class="seg" role="group" id="qTabs"><button type="button" data-q="1" aria-pressed="true"></button><button type="button" data-q="2" aria-pressed="false"></button></div>
+    <div id="q1">
+      <p class="hint" id="q1Text" style="margin-top:8px;max-width:none"></p>
+      <canvas id="qDial" role="img"></canvas>
+      <div class="qLeads" id="qLeads"></div>
+      <div class="qBtns"><button type="button" class="btn" id="q1Check"></button><button type="button" class="btn" id="q1Next"></button></div>
+      <p class="qRes cols2" id="q1Res"></p>
+    </div>
+    <div id="q2" hidden>
+      <p class="hint" id="q2Text" style="margin-top:8px;max-width:none"></p>
+      <div class="read" id="q2Pat"></div>
+      <div class="qOpts" id="q2Opts"></div>
+      <p class="qRes cols2" id="q2Res"></p>
+      <div class="qBtns"><button type="button" class="btn" id="q2Go" hidden></button><button type="button" class="btn" id="q2Next" hidden></button></div>
+    </div>
+  </section>
+  </div>
+</main>
+<div id="linkBadge" hidden><span lang="ja">他の画面と連動中</span><span lang="en">Linked with other windows</span></div>
+
+<script>
+/*PURE-START*/
+const D = Math.PI / 180, TMAX = 800, STEP = 2;
+// ベクトルは [x, y, z]: x=患者の左、y=下方向、z=前方向。
+// 前額面の角度は 0°=左、時計回りが正（下が +90°）。水平面の角度は 0°=左、前が +90°。
+const LEADS = [
+  {n:'I',a:0,k:'f'},{n:'II',a:60,k:'f'},{n:'III',a:120,k:'f'},
+  {n:'aVR',a:-150,k:'f'},{n:'aVL',a:-30,k:'f'},{n:'aVF',a:90,k:'f'},
+  {n:'V1',a:115,k:'h',m:1.8},{n:'V2',a:90,k:'h',m:1.8},{n:'V3',a:65,k:'h',m:1.8},
+  {n:'V4',a:45,k:'h',m:1.8},{n:'V5',a:20,k:'h',m:1.8},{n:'V6',a:0,k:'h',m:1.8}
+];
+// P wave: right atrium first (down, slightly anterior), then left atrium (leftward, posterior) -> a narrow loop, as in the vectorcardiogram
+const P_W = ()=>[ {t:92,s:20,a:.11,g:68,z:.07,site:'atria'}, {t:112,s:20,a:.10,g:40,z:-.03,site:'atria'} ];
+const W_STD = {P:[40,170],QRS:[222,300],STT:[300,680]};
+// T波は、ゆっくり立ち上がり少し速く下がる形にするため、同じ向きの2つの山を足し合わせる
+function mkT(t,a,g,z,w){ w=w||1; return [
+  {t:t-20,s:50*w,a:.62*a,g:g,z:z*.62,site:'all',tl:1},
+  {t:t+8,s:26*w,a:.42*a,g:g,z:z*.42,site:'all',tl:2} ]; }
+const PRESETS = [
+  { id:'normal', label:'正常', win:W_STD,
+    comps:[ ...P_W(),
+      {t:231,s:4.5,a:.16,g:-150,z:.15,site:'septum'},
+      {t:250,s:7.5,a:1.30,g:50,z:-.30,site:'lvfree'},
+      {t:267,s:6,a:.30,g:120,z:-.15,site:'base'},
+      ...mkT(470,.55,45,.15) ],
+    notes:[
+      '主ベクトルは前額面で約60°（左下向き）。II で最大のR、aVR で最も深い陰性波になります。',
+      '水平面では、主ベクトルが左・やや後方を向きます。V1・V2 は後ろ向きに遠ざかるので深いS、V5・V6 は左向きなので高いRになります。',
+      '最初の小さな中隔ベクトルは右・上・前向きです。V1 に小さなr、I・V5・V6 に小さなqが出ます。V1 から V6 へR波が次第に高くなる「R波増高」は、前後方向の成分の見え方の変化です。' ] },
+  { id:'lad', label:'左軸偏位', win:W_STD,
+    comps:[ ...P_W(),
+      {t:233,s:4.5,a:.16,g:150,z:.15,site:'septum'},
+      {t:254,s:8,a:1.20,g:-50,z:-.30,site:'lvfree'},
+      {t:271,s:6,a:.30,g:-80,z:-.15,site:'base'},
+      ...mkT(470,.40,50,.15) ],
+    notes:[
+      '主ベクトルが前額面で約−50°（左上向き）。I と aVL で高いR、II・III・aVF で深いSになります。',
+      '最初の小ベクトルは右向きなので、III・aVF では小さなrが先行します（rS型）。',
+      '軸偏位は、前額面で決まる所見です。この模型では水平面のベクトルは正常と同じ向き（左・やや後方）のままなので、V1〜V6 は正常に近い形です。' ] },
+  { id:'rad', label:'右軸偏位', win:W_STD,
+    comps:[ ...P_W(),
+      {t:231,s:5,a:.50,g:-60,z:.15,site:'septum'},
+      {t:252,s:8,a:1.20,g:110,z:-.30,site:'lvfree'},
+      {t:269,s:6,a:.25,g:130,z:-.15,site:'base'},
+      ...mkT(470,.40,70,.15) ],
+    notes:[
+      '主ベクトルが前額面で約110°（右下向き）。I と aVL で深いS、III と aVF で高いRになります。',
+      '最初のベクトルが左上向きなので、下壁誘導に小さなqが出ます。',
+      '軸が +90°を超えると右軸偏位です。左脚後枝ブロック型の形ですが、右室負荷でも同様の軸になります。',
+      'この模型では、主ベクトルが右向きの成分を持つので、左を向く誘導（I、V5・V6）でもSが深くなります（rS型）。右軸偏位の胸部誘導の形は原因によってさまざまで、V5・V6 の深いSは定義ではありません。' ] },
+  { id:'lbbb', label:'左脚ブロック', win:{P:[40,170],QRS:[215,360],STT:[360,700]},
+    comps:[ ...P_W(),
+      {t:232,s:9,a:.25,g:10,z:-.10,site:'septum'},
+      {t:275,s:20,a:1.10,g:5,z:-.70,site:'lvfree'},
+      {t:318,s:14,a:.45,g:-10,z:-.25,site:'base'},
+      ...mkT(515,.50,-170,.28,1.15) ],
+    notes:[
+      'QRSが約140msに延びます。左室が右室より遅れて、ゆっくり興奮するためです。',
+      '中隔の初期ベクトルが右・前向きにならないので、V1 の初期r、V5・V6 と I・aVL のqが消えます。',
+      '主ベクトルが後方・左に長く伸びるため、この症例では V1・V2 が深いQS（rS型のこともあります）、V5・V6 が幅広いRになります。',
+      'T波のベクトルはQRSと逆向きです。V1・V2 で陽性T、V5・V6 と I で陰性Tになります（二次性の再分極異常）。' ] },
+  { id:'stemi', label:'急性下壁梗塞', win:W_STD,
+    comps:[ ...P_W(),
+      {t:231,s:4.5,a:.16,g:-150,z:.15,site:'septum'},
+      {t:250,s:7.5,a:1.30,g:50,z:-.30,site:'lvfree'},
+      {t:267,s:6,a:.30,g:120,z:-.15,site:'base'},
+      {t:345,s:35,a:.34,g:110,z:0,site:'inf'},
+      ...mkT(470,.55,45,.15) ],
+    notes:[
+      'ST部に、障害された下壁（約110°）へ向かう小さなベクトルが加わります。II・III・aVF でST上昇になります。',
+      '同じベクトルを反対側から見ると逆向きに映ります。aVL（程度は軽いが I も）のST下降は、この対側性変化です。',
+      'ST上昇は II より III で大きくなります。ベクトルが III の軸（120°）に近い向きだからです。',
+      'この模型では、V5・V6 にもST下降が出ます。ST部ベクトルが右下向きで、左を向く V5・V6 の軸から遠ざかるためです（V1 の小さな上昇も同じ仕組みです）。ただし、これは胸部誘導の軸を固定した模型から出る結果です。実際の下壁梗塞では、V5・V6 の下降は一貫した所見ではないので、対側性変化として教えるのは III の上昇と aVL の下降を中心にします。',
+      'この模型では、ST部ベクトルに前後成分を持たせていません。実際には、右室梗塞の合併で V1 のST上昇、後壁梗塞の合併で V1〜V3 のST低下が見られることがあります。' ] },
+  { id:'rbbb', label:'右脚ブロック', win:{P:[40,170],QRS:[215,360],STT:[360,700]},
+    comps:[ ...P_W(),
+      {t:231,s:4.5,a:.16,g:-150,z:.15,site:'septum'},
+      {t:250,s:7.5,a:1.50,g:60,z:-.30,site:'lvfree'},
+      {t:267,s:6,a:.30,g:120,z:-.15,site:'base'},
+      {t:322,s:12,a:.34,g:-170,z:.65,site:'rv'},
+      ...mkT(515,.50,40,-.36,1.1) ],
+    notes:[
+      'QRSの前半は正常です。中隔と左室は、左脚を通って正常に興奮するので、V1 に小さなr、I・V5・V6 に小さなqと高いRが出ます。',
+      '右室は、左室から細胞を伝わって、遅れてゆっくり興奮します。そのため、QRSの後半に、右・前向きの別の成分が加わり、QRSが約140msに延びます（成人の完全右脚ブロックは120 ms以上）。',
+      'この終末ベクトルは V1 に向かうのでR′（rSR′型）になり、I・V5・V6 から遠ざかるので幅広いSになります。aVR にも小さなR′が出ます。',
+      'T波は、終末ベクトルと逆向きになります。V1〜V3 で陰性Tになります（二次性の再分極異常）。' ] },
+  { id:'lat', label:'急性側壁梗塞', win:W_STD,
+    comps:[ ...P_W(),
+      {t:231,s:4.5,a:.16,g:-150,z:.15,site:'septum'},
+      {t:250,s:7.5,a:1.30,g:50,z:-.30,site:'lvfree'},
+      {t:267,s:6,a:.30,g:120,z:-.15,site:'base'},
+      {t:345,s:35,a:.34,g:-15,z:0,site:'lat'},
+      ...mkT(470,.55,45,.15) ],
+    notes:[
+      'ST部に、障害された側壁（左・やや上、約−15°）へ向かうベクトルが加わります。I・aVL・V5・V6 でST上昇になります。',
+      '同じベクトルを反対側から見ると逆向きに映ります。III・aVF（II は軽い）のST下降は、この対側性変化です。',
+      '肢誘導では、ベクトルの向き（約−15°）に近い I と aVL が上昇します。この模型では、胸部誘導の上昇が V4〜V6 で最も大きく、V3 にも出ます。胸部誘導の軸を固定し、振れを1.8倍にした仮定から出る結果です。V1 のST下降は、ベクトルが左向きで、V1 から遠ざかるためです。',
+      'この模型では、ST部ベクトルの前後成分を0にしています。実際の回旋枝の梗塞は後壁にも及ぶことがあり、その場合は V1〜V3 のST下降が目立ちます。' ] },
+  { id:'ant', label:'急性前壁梗塞', win:W_STD,
+    comps:[ ...P_W(),
+      {t:231,s:4.5,a:.16,g:-150,z:.15,site:'septum'},
+      {t:250,s:7.5,a:1.30,g:50,z:-.30,site:'lvfree'},
+      {t:267,s:6,a:.30,g:120,z:-.15,site:'base'},
+      {t:345,s:35,a:.28,g:-75,z:.34,site:'ant'},
+      ...mkT(470,.55,45,.15) ],
+    notes:[
+      'ST部に、障害された前壁（前・やや左上）へ向かうベクトルが加わります。前向きの成分を最もよく拾う V2〜V4 で、ST上昇が目立ちます。',
+      '前額面では、ベクトルが上向き（やや左）なので、aVL にST上昇、II・III・aVF にST下降が出ます。下壁誘導のST下降は、この対側性変化です。',
+      'ST上昇がどの誘導に分布するか（V1〜V2、V3〜V4、V5〜V6 や I・aVL）は、障害された範囲の手がかりになります。ただし、それだけで範囲は断定できません。この模型は前向きのベクトル1本なので、広がりの違いは表していません。',
+      'QRSの変化（R波の減高、異常Q波）は、この模型では表していません。' ] },
+  { id:'post', label:'急性後壁梗塞', win:W_STD,
+    comps:[ ...P_W(),
+      {t:231,s:4.5,a:.16,g:-150,z:.15,site:'septum'},
+      {t:250,s:7.5,a:1.30,g:50,z:-.30,site:'lvfree'},
+      {t:267,s:6,a:.30,g:120,z:-.15,site:'base'},
+      {t:345,s:35,a:.10,g:90,z:-.30,site:'post'},
+      ...mkT(470,.55,45,.15) ],
+    notes:[
+      'ST部ベクトルが後ろ向き（背中側）なので、前向きの成分を持つ胸部誘導は、ベクトルから遠ざかり、ST下降になります。この模型では V1〜V4 が下降し、V5 も軽く下がります。',
+      '背中側から見れば、これはST上昇の鏡像です。実際には、V1〜V3 のST下降（陽性T波を伴うことが多い）が、後壁側の障害を疑う手がかりになります。V7〜V9 を記録すると、ST上昇を確認できる場合があります。',
+      'ベクトルの前額面成分は小さいので、肢誘導の変化はわずかです。後壁梗塞は、下壁・側壁の梗塞に合併することが多く、その場合は II・III・aVF や I・aVL のST上昇に、V1〜V3 のST下降が加わります。',
+      'のちに現れる V1・V2 の高いR波は、この模型では表していません。' ] }
+
+];
+PRESETS.forEach(p=>p.comps.forEach(c=>{ c.v=[c.a*Math.cos(c.g*D),c.a*Math.sin(c.g*D),c.z||0]; }));
+// open the T loop: the first hump is turned back and the second forward, in the same sense as the QRS loop (frontal and horizontal)
+PRESETS.forEach(p=>{
+  const q=p.comps.filter(c=>c.t>=p.win.QRS[0]&&c.t<=p.win.QRS[1]);
+  let aF=0,aH=0; for(let t=p.win.QRS[0];t<p.win.QRS[1];t+=2){ const v0=[0,0,0],v1=[0,0,0];
+    q.forEach(c=>{ const g0=Math.exp(-0.5*((t-c.t)/c.s)**2), g1=Math.exp(-0.5*((t+2-c.t)/c.s)**2); for(let k=0;k<3;k++){ v0[k]+=g0*c.v[k]; v1[k]+=g1*c.v[k]; } });
+    aF+=v0[0]*v1[1]-v1[0]*v0[1]; aH+=v0[0]*v1[2]-v1[0]*v0[2]; }
+  const sF=Math.sign(aF)||1, sH=Math.sign(aH)||1, DG=44, DZ=.03;
+  p.comps.forEach(c=>{ if(!c.tl) return; const k=c.tl===1?-1:1, m=c.tl===1?.62:.42;
+    const g=c.g+k*sF*DG/2, mag=Math.hypot(c.v[0],c.v[1]), sc=c.a;
+    c.v=[sc*Math.cos(g*D), sc*Math.sin(g*D), c.v[2]+k*sH*DZ*m*Math.sign(Math.cos(c.g*D)||1)]; });
+});
+function gauss(t,c){ return Math.exp(-0.5*((t-c.t)/c.s)**2); }
+function vecAt(p,t){
+  let x=0,y=0,z=0;
+  for(const c of p.comps){ const w=gauss(t,c); x+=w*c.v[0]; y+=w*c.v[1]; z+=w*c.v[2]; }
+  return [x,y,z];
+}
+function proj(v,ld){ return ld.k==='f' ? v[0]*Math.cos(ld.a*D)+v[1]*Math.sin(ld.a*D) : v[0]*Math.cos(ld.a*D)+v[2]*Math.sin(ld.a*D); }
+function buildSeries(p){
+  const n=Math.floor(TMAX/STEP)+1, V=[], L=LEADS.map(()=>[]);
+  for(let i=0;i<n;i++){ const v=vecAt(p,i*STEP); V.push(v); LEADS.forEach((ld,k)=>L[k].push(proj(v,ld)*(ld.m||1))); }
+  return {V,L,n};
+}
+function sumQRS(p,s){
+  let x=0,y=0,z=0;
+  for(let i=0;i<s.n;i++){ const t=i*STEP; if(t>=p.win.QRS[0]&&t<=p.win.QRS[1]){ x+=s.V[i][0]; y+=s.V[i][1]; z+=s.V[i][2]; } }
+  return [x,y,z];
+}
+function qrsAxis(p,s){ const q=sumQRS(p,s); return Math.atan2(q[1],q[0])/D; }
+function qrsAxisH(p,s){ const q=sumQRS(p,s); return Math.atan2(q[2],q[0])/D; }
+function axisClass(a){
+  if(a>=-30&&a<=90) return '正常軸';
+  if(a<-30&&a>=-90) return '左軸偏位';
+  if(a>90&&a<=180) return '右軸偏位';
+  return '高度の軸偏位';
+}
+// 3次元ベクトルの最小回転 + 拡大縮小
+function cross(a,b){ return [a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]]; }
+function dot(a,b){ return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]; }
+function nrm(a){ return Math.hypot(a[0],a[1],a[2]); }
+function rotParams(pk,mv){
+  const u=pk.map(q=>q/nrm(pk)), w=mv.map(q=>q/nrm(mv));
+  const k=cross(u,w), s=nrm(k), c=dot(u,w);
+  if(s<1e-6){
+    if(c>0) return {k:[0,0,1],th:0};
+    const p=Math.abs(u[2])<.9 ? cross(u,[0,0,1]) : cross(u,[1,0,0]); const pn=nrm(p);
+    return {k:p.map(q=>q/pn),th:Math.PI};
+  }
+  return {k:k.map(q=>q/s),th:Math.atan2(s,c)};
+}
+function applyRot(r,v,sc){
+  const c=Math.cos(r.th), s=Math.sin(r.th), kv=cross(r.k,v), kd=dot(r.k,v);
+  return [0,1,2].map(i=>(v[i]*c+kv[i]*s+r.k[i]*kd*(1-c))*sc);
+}
+/*PURE-END*/
+
+(function(){
+const MONO = '"IBM Plex Mono",ui-monospace,monospace';
+const $ = id => document.getElementById(id);
+
+/* ---------- language (ja / en) ---------- */
+let LANG='ja';
+(function(){
+  let l=null;
+  try{ l=new URLSearchParams(location.search).get('lang'); }catch(e){}
+  if(l!=='ja'&&l!=='en'){ try{ l=localStorage.getItem('ecg-vector-lang'); }catch(e){ l=null; } }
+  if(l!=='ja'&&l!=='en'){ l=/^ja/i.test((navigator.language||'ja'))?'ja':'en'; }
+  LANG=l;
+})();
+const T=(ja,en)=>LANG==='en'?en:ja;
+const EN_P={
+  normal:{label:'Normal',notes:[
+    'The main vector points about 60° on the frontal plane (down and to the left). Lead II shows the tallest R and aVR the deepest negative wave.',
+    'On the horizontal plane the main vector points to the left and slightly posterior. V1 and V2 face away from it, so they show a deep S; V5 and V6 face to the left, so they show a tall R.',
+    'The first small septal vector points right, upward and anterior. It gives a small r in V1 and a small q in I, V5 and V6. The progressive increase in R-wave height from V1 to V6 (“R-wave progression”) reflects how the anterior–posterior component is seen from each lead.']},
+  lad:{label:'Left axis deviation',notes:[
+    'The main vector points about −50° on the frontal plane (up and to the left). I and aVL show a tall R; II, III and aVF show a deep S.',
+    'The first small vector points to the right, so III and aVF start with a small r (rS pattern).',
+    'Axis deviation is a frontal-plane finding. In this model the horizontal-plane vector keeps the same direction as normal (left and slightly posterior), so V1–V6 look close to normal.']},
+  rad:{label:'Right axis deviation',notes:[
+    'The main vector points about 110° on the frontal plane (down and to the right). I and aVL show a deep S; III and aVF show a tall R.',
+    'The first vector points up and to the left, so the inferior leads show a small q.',
+    'An axis beyond +90° is right axis deviation. The pattern resembles left posterior fascicular block, but right ventricular strain can give the same axis.',
+    'In this model the main vector has a rightward component, so even leads facing left (I, V5, V6) show a deep S (rS pattern). The chest-lead pattern of right axis deviation varies with its cause; a deep S in V5–V6 is not part of the definition.']},
+  lbbb:{label:'Left bundle branch block',notes:[
+    'The QRS lengthens to about 140 ms because the left ventricle is activated later and more slowly than the right.',
+    'The initial septal vector no longer points right and anterior, so the initial r in V1 and the q in V5, V6, I and aVL disappear.',
+    'The main vector extends far posteriorly and to the left, so in this case V1 and V2 show a deep QS (an rS pattern is also possible) and V5 and V6 a broad R.',
+    'The T-wave vector points opposite to the QRS: positive T in V1 and V2, negative T in V5, V6 and I (secondary repolarization abnormality).']},
+  stemi:{label:'Acute inferior MI',notes:[
+    'A small vector toward the injured inferior wall (about 110°) is added to the ST segment. II, III and aVF show ST elevation.',
+    'Seen from the opposite side, the same vector points the other way. The ST depression in aVL (and, to a lesser degree, I) is this reciprocal change.',
+    'ST elevation is greater in III than in II, because the vector points closer to the axis of III (120°).',
+    'In this model V5 and V6 also show ST depression, because the vector points down and to the right, away from the axes of V5 and V6, which face left (the small elevation in V1 comes from the same mechanism). This is a result of a model with fixed chest-lead axes. In real inferior infarction, depression in V5–V6 is not a consistent finding, so teach the reciprocal change mainly with elevation in III and depression in aVL.',
+    'This model gives the ST vector no anterior–posterior component. In real patients, right ventricular infarction can add ST elevation in V1, and posterior infarction can add ST depression in V1–V3.']},
+  rbbb:{label:'Right bundle branch block',notes:[
+    'The first part of the QRS is normal. The septum and left ventricle are activated normally through the left bundle, so V1 shows a small r and I, V5 and V6 a small q and a tall R.',
+    'The right ventricle is activated late and slowly, cell to cell from the left. A terminal component pointing right and anterior is added in the second half of the QRS, and the QRS lengthens to about 140 ms (complete right bundle branch block in adults: 120 ms or more).',
+    'This terminal vector points toward V1 (R′, rSR′ pattern) and (slightly) aVR, and away from I, V5 and V6, which end in a broad S.',
+    'The T wave points opposite to the terminal vector: inverted in V1–V3 (secondary repolarization abnormality).']},
+  lat:{label:'Acute lateral MI',notes:[
+    'A small vector toward the injured lateral wall (to the left and slightly up, about −15°) is added to the ST segment. I, aVL, V5 and V6 show ST elevation.',
+    'Seen from the opposite side, the same vector points the other way. The ST depression in III and aVF (slight in II) is this reciprocal change.',
+    'Among the limb leads, I and aVL rise because the vector (about −15°) points close to their axes. In this model the chest-lead elevation is largest in V4–V6 and also appears in V3; this comes from the fixed chest-lead axes and the 1.8× gain. The ST depression in V1 appears because the vector points left, away from V1.',
+    'In this model the ST vector has no anterior–posterior component. A real circumflex infarction can extend to the posterior wall, which makes ST depression in V1–V3 more prominent.']},
+  ant:{label:'Acute anterior MI',notes:[
+    'A small vector toward the injured anterior wall (anterior and slightly up to the left) is added to the ST segment. V2–V4, which pick up the anterior component best, show the most ST elevation.',
+    'On the frontal plane the vector points up (slightly left), so aVL shows ST elevation and II, III and aVF show ST depression. The inferior ST depression is the reciprocal change.',
+    'Which leads show ST elevation (V1–V2, V3–V4, V5–V6 or I, aVL) is a clue to the injured territory, but it cannot fix the extent on its own. This model has a single anterior vector and does not show differences in extent.',
+    'QRS changes (loss of R-wave height, pathological Q waves) are not shown in this model.']},
+  post:{label:'Acute posterior MI',notes:[
+    'The ST vector points posteriorly (toward the back), so the chest leads, which have an anterior component, face away from it and show ST depression. In this model V1–V4 fall, and V5 falls slightly.',
+    'Seen from the back, this is the mirror image of ST elevation. In real patients, ST depression in V1–V3 (often with upright T waves) is a clue to posterior involvement, and recording V7–V9 may confirm ST elevation.',
+    'The frontal-plane component is small, so the limb leads change little. Posterior infarction often accompanies inferior or lateral infarction; then the ST elevation in II, III, aVF or I, aVL comes with ST depression in V1–V3.',
+    'The tall R wave that appears later in V1–V2 is not shown in this model.']}
+};
+
+const JUMPS={stemi:{t:345,k:'st'},lat:{t:345,k:'st'},ant:{t:345,k:'st'},post:{t:345,k:'st'},rbbb:{t:322,k:'term'}};
+const ST_SITES=['inf','lat','ant','post'];
+function jumpLabel(id){ const j=JUMPS[id]; return j.k==='st'?T('ST部ベクトルを見る','Show the ST vector'):T('終末ベクトルを見る','Show the terminal vector'); }
+function updateJump(){
+  const j=cur&&JUMPS[cur.p.id], b=$('stJump');
+  b.hidden=!j||st.mode==='manual';
+  if(j) b.textContent=jumpLabel(cur.p.id);
+}
+function stText(c){
+  const up=[],dn=[];
+  LEADS.forEach(ld=>{ const v=proj(c.v,ld)*(ld.m||1), a=Math.abs(v); if(a<.06) return;
+    (v>0?up:dn).push([a,ld.n+(a<.15?T('（軽）',' (slight)'):'')]); });
+  const f=l=>l.length?l.sort((x,y)=>y[0]-x[0]).map(x=>x[1]).join(', '):'—';
+  return {up:f(up),dn:f(dn)};
+}
+function renderStCard(){
+  const box=$('stCard'); const c=cur.mp.comps.find(c=>ST_SITES.includes(c.site));
+  if(!c){ box.hidden=true; return; }
+  box.hidden=false;
+  const tx=stText(c);
+  const items=[[T('ST上昇（ベクトルに近い向きの誘導）','ST elevation (leads facing the vector)'),tx.up,true],
+               [T('ST下降（反対側の誘導＝対側性変化）','ST depression (leads on the opposite side = reciprocal change)'),tx.dn,true]];
+  $('stRead').innerHTML=items.map(i=>'<div class="wide"><small>'+i[0]+'</small><strong>'+i[1]+'</strong></div>').join('');
+}
+const plabel=p=>LANG==='en'?EN_P[p.id].label:p.label;
+const pnotes=p=>LANG==='en'?EN_P[p.id].notes:p.notes;
+const AXC={'正常軸':'Normal axis','左軸偏位':'Left axis deviation','右軸偏位':'Right axis deviation','高度の軸偏位':'Extreme axis deviation'};
+const axisTxt=a=>{ const k=axisClass(a); return T(k,AXC[k]); };
+const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+const st = { span:1600, pi:0, T:250, playing:!reduce, mode:'play', speed:0.1, sel:'QRS', mvs:null, view:'front', focus:null, gain:null, yaw:-38, pitch:22 };
+Object.defineProperty(st,'t',{get(){ return this.T%TMAX; }, set(v){ this.T=v; }});
+let cur = null, colors = {};
+function css(n){ return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+function loadColors(){
+  colors = { surface:css('--surface'), ink:css('--ink'), muted:css('--muted'), line:css('--line'),
+    accent:css('--accent'), teal:css('--teal'), amber:css('--amber'), gm:css('--grid-minor'), gM:css('--grid-major') };
+}
+const GROUPS=['P','QRS','T'];
+const GCOL=g=> g==='P'?colors.amber : g==='QRS'?colors.accent : colors.teal;
+const MAXMAG={P:0.4,QRS:1.5,T:1.0};
+function grpOf(c,w){ return c.t<w.QRS[0]?'P':(c.t<=w.QRS[1]?'QRS':'T'); }
+function peakIn(s,w){ let bi=0,bm=-1; for(let j=0;j<s.n;j++){ const t=j*STEP; if(t>=w[0]&&t<=w[1]){ const m=nrm(s.V[j]); if(m>bm){bm=m;bi=j;} } } return {t:bi*STEP,v:s.V[bi].slice()}; }
+function angBetween(a,b,dims){
+  const A=dims===2?[a[0],a[1],0]:a, B=dims===2?[b[0],b[1],0]:b;
+  const c=dot(A,B)/(nrm(A)*nrm(B)||1); return Math.round(Math.acos(Math.max(-1,Math.min(1,c)))/D);
+}
+function clampV(v,g){ const m=nrm(v), mx=MAXMAG[g]; if(m>mx){ const f=mx/m; return v.map(q=>q*f); } return v; }
+
+/* ---------- canvases ---------- */
+const fcv=$('front'), hcv=$('horiz'), dcv=$('d3'), tcv=$('traces');
+let fctx, hctx, dctx, tctx, fS=300, tW=400, tH=300;
+let ROW=50; const LM=54, RM=10, TOP=4;
+const narrow=()=>window.matchMedia('(max-width:819px)').matches;
+const nRows=()=> st.focus!==null ? 1 : (narrow()?12:6);
+const viewNb=()=> st.focus!==null ? 1 : (narrow()?3:2);
+const rowH=()=> st.focus!==null ? (narrow()?170:260) : ROW;
+const rowsList=()=> st.focus!==null ? [st.focus] : narrow() ? [0,1,2,3,4,5,6,7,8,9,10,11] : [0,1,2,3,4,5,6,7,8,9,10,11];
+function fit(cv,w,h){
+  const dpr=Math.min(window.devicePixelRatio||1,2);
+  cv.width=Math.round(w*dpr); cv.height=Math.round(h*dpr);
+  cv.style.width=w+'px'; cv.style.height=h+'px';
+  const c=cv.getContext('2d'); c.setTransform(dpr,0,0,dpr,0,0); return c;
+}
+function resize(){
+  const nar=narrow(); ROW=nar?40:88;
+  if(st.gain===null){ st.gain= nar?1.4:1.3; $('gSl').value=st.gain; $('gOut').textContent='×'+st.gain.toFixed(1); }
+  const w=Math.max($('fwrap').clientWidth,$('hwrap').clientWidth,$('dwrap').clientWidth)||320;
+  fS=Math.max(230,Math.min(w,nar?250:400));
+  tW=Math.max(260,$('twrap').clientWidth||400);
+  st.span=viewNb()*TMAX; st.T=st.T%st.span; $('scrub').max=st.span; syncScrubUI();
+  tH=TOP+rowH()*nRows()+22;
+  fctx=fit(fcv,fS,fS); hctx=fit(hcv,fS,fS); dctx=fit(dcv,fS,fS); tctx=fit(tcv,tW,tH);
+  draw();
+}
+
+/* ---------- heart schematics ---------- */
+const SITES={atria:[-.75,-.25,.5],avn:[-.35,-.08,.3],septum:[.05,0,.35],rv:[.35,-.45,.45],
+  lvfree:[.35,.55,.5],apex:[.8,0,.45],base:[-.4,.5,.45],inf:[.55,-.4,.5],
+  lat:[.3,.9,.4],ant:[.55,.25,.45],post:[-.05,.4,.4]};
+function siteInt(p,t){
+  const m={}; const add=(k,v)=>{ m[k]=Math.max(m[k]||0,v); };
+  for(const c of p.comps){ const sg=Math.max(c.s,14); add(c.site,Math.exp(-0.5*((t-c.t)/sg)**2)); }
+  const a=p.win.P[1]-5, b=p.win.QRS[0]+4;
+  if(t>a&&t<b) add('avn',Math.sin(Math.PI*(t-a)/(b-a)));
+  return m;
+}
+/* ---- concrete heart picture: frontal view (chambers, septum, great-vessel stubs) ---- */
+function heartFrontal(c,L,inten){
+  const path=pts=>{ c.beginPath(); pts.forEach((q,i)=>{ const [x,y]=L(q[0],q[1]); i?c.lineTo(x,y):c.moveTo(x,y); }); };
+  const ell=(u0,v0,ru,rv)=>{ c.beginPath(); for(let i=0;i<=40;i++){ const a=i/40*Math.PI*2, [x,y]=L(u0+ru*Math.cos(a),v0+rv*Math.sin(a)); i?c.lineTo(x,y):c.moveTo(x,y); } c.closePath(); };
+  const vent=()=>{ const P=(u,v)=>L(u,v); c.beginPath(); let q=P(-.15,-.62); c.moveTo(q[0],q[1]);
+    let a=P(.15,-1.05),b=P(.98,-.8),e=P(1.04,.1); c.bezierCurveTo(a[0],a[1],b[0],b[1],e[0],e[1]);
+    a=P(1.0,.75); b=P(.3,1.08); e=P(-.15,.72); c.bezierCurveTo(a[0],a[1],b[0],b[1],e[0],e[1]); c.closePath(); };
+  const sep=()=>{ const P=(u,v)=>L(u,v); let q=P(1.02,.1); c.moveTo(q[0],q[1]); let a=P(.7,.05),b=P(.3,-.05),e=P(-.15,.0); c.bezierCurveTo(a[0],a[1],b[0],b[1],e[0],e[1]); };
+  const RT=colors.teal, LT=colors.accent;
+  // atria and ventricles
+  c.globalAlpha=1;
+  ell(-.62,-.4,.34,.3); c.fillStyle=RT; c.globalAlpha=.16; c.fill();      // RA
+  ell(-.58,.38,.28,.26); c.fillStyle=LT; c.globalAlpha=.16; c.fill();     // LA
+  c.save(); vent(); c.clip();
+  c.beginPath(); sep(); const e1=L(-.15,-1.4), e2=L(1.4,-1.4); c.lineTo(e1[0],e1[1]); c.lineTo(e2[0],e2[1]); c.closePath(); c.fillStyle=RT; c.globalAlpha=.16; c.fill(); // RV
+  c.beginPath(); sep(); const e3=L(-.15,1.4), e4=L(1.4,1.4); c.lineTo(e3[0],e3[1]); c.lineTo(e4[0],e4[1]); c.closePath(); c.fillStyle=LT; c.globalAlpha=.16; c.fill(); // LV
+  if(inten.all>0.02){ c.fillStyle=colors.teal; c.globalAlpha=.30*inten.all; vent(); c.fill(); }
+  c.restore();
+  c.strokeStyle=colors.muted; c.lineWidth=1.3; c.globalAlpha=.65; c.lineJoin='round';
+  vent(); c.stroke(); ell(-.62,-.4,.34,.3); c.stroke(); ell(-.58,.38,.28,.26); c.stroke();
+  c.beginPath(); sep(); c.globalAlpha=.55; c.stroke();
+  c.globalAlpha=.85; c.fillStyle=colors.ink; c.font='600 9px '+MONO; c.textAlign='center'; c.textBaseline='middle';
+  [['RA',-.62,-.4],['LA',-.58,.38],['RV',.45,-.38],['LV',.5,.38]].forEach(q=>{ const [x,y]=L(q[1],q[2]); c.fillText(q[0],x,y); });
+}
+/* shaded ellipse (same muscle texture as the frontal heart): x,y centre, rx,ry radii, rot radians, al strength, optional soft shadow */
+function shadeEll(c,x,y,rx,ry,rot,al,shadow,rgb){
+  const col=rgb||[196,82,75];
+  c.save(); c.translate(x,y); c.rotate(rot); c.scale(rx,ry);
+  const g=c.createRadialGradient(-.28,-.28,.05,0,0,1.05);
+  g.addColorStop(0,'rgba(236,150,138,'+al+')'); g.addColorStop(.55,'rgba('+col[0]+','+col[1]+','+col[2]+','+al+')'); g.addColorStop(1,'rgba(110,34,38,'+(al*.9)+')');
+  if(shadow){ c.shadowColor='rgba(40,10,10,'+(.45*.30)+')'; c.shadowBlur=12; c.shadowOffsetX=2; c.shadowOffsetY=3; }
+  c.beginPath(); c.arc(0,0,1,0,Math.PI*2); c.globalAlpha=1; c.fillStyle=g; c.fill();
+  c.restore();
+}
+/* ---- shaded, shadow-like anterior heart under the schematic: body, lobes, auricles, vessels, fat in the grooves, coronary arteries ---- */
+function heartRealistic(c,L,R){
+  const K=0.30, rr=R/117, ART='#c0392b', VEN='#4d6fa8', FAT='#e2b04a', MUS='#c4524b';
+  const sm=pts=>{ const q=pts.map(a=>L(a[0],a[1])); c.beginPath(); c.moveTo(q[0][0],q[0][1]);
+    for(let i=1;i<q.length-1;i++){ c.quadraticCurveTo(q[i][0],q[i][1],(q[i][0]+q[i+1][0])/2,(q[i][1]+q[i+1][1])/2); }
+    const l=q[q.length-1]; c.lineTo(l[0],l[1]); };
+  const tube=(pts,w,col,al)=>{ sm(pts); c.lineWidth=w+2.6*rr; c.strokeStyle='#3a1f1f'; c.globalAlpha=al*.55*K; c.stroke(); sm(pts); c.lineWidth=w; c.strokeStyle=col; c.globalAlpha=al*K; c.stroke(); };
+  const lobe=(u0,v0,ru,rv,al0,hl)=>{ const al=al0*K;
+    const [x,y]=L(u0,v0), e1=L(u0+ru,v0), e2=L(u0,v0+rv), rad=Math.max(Math.hypot(e1[0]-x,e1[1]-y),Math.hypot(e2[0]-x,e2[1]-y));
+    const g=c.createRadialGradient(x-rad*.28,y-rad*.28,rad*.05,x,y,rad*1.05);
+    g.addColorStop(0,'rgba(236,150,138,'+(al*hl)+')'); g.addColorStop(.55,'rgba(196,82,75,'+al+')'); g.addColorStop(1,'rgba(110,34,38,'+(al*.9)+')');
+    c.beginPath(); for(let i=0;i<=48;i++){ const t=i/48*Math.PI*2, q=L(u0+ru*Math.cos(t),v0+rv*Math.sin(t)); i?c.lineTo(q[0],q[1]):c.moveTo(q[0],q[1]); } c.closePath();
+    c.globalAlpha=1; c.fillStyle=g; c.fill(); };
+  c.save(); c.lineCap='round'; c.lineJoin='round';
+  // outer body with a soft drop shadow
+  const P=(u,v)=>L(u,v), a0=P(-.3,-.95), a1=P(.2,-1.3), a2=P(1.0,-1.0), a3=P(1.12,.1), a4=P(1.08,.95), a5=P(.3,1.4), a6=P(-.38,1.0), a7=P(-.7,.5), a8=P(-.65,-.5);
+  c.beginPath(); c.moveTo(a0[0],a0[1]); c.bezierCurveTo(a1[0],a1[1],a2[0],a2[1],a3[0],a3[1]); c.bezierCurveTo(a4[0],a4[1],a5[0],a5[1],a6[0],a6[1]); c.bezierCurveTo(a7[0],a7[1],a8[0],a8[1],a0[0],a0[1]); c.closePath();
+  c.shadowColor='rgba(40,10,10,'+(.45*K)+')'; c.shadowBlur=14*rr; c.shadowOffsetX=3*rr; c.shadowOffsetY=4*rr;
+  c.fillStyle='rgba(150,60,58,'+(.30*K)+')'; c.globalAlpha=1; c.fill();
+  c.shadowColor='transparent'; c.shadowBlur=0; c.shadowOffsetX=0; c.shadowOffsetY=0;
+  // chambers as shaded lobes (ventricles larger, atria lighter), then auricles
+  lobe(.50,.32,.66,.52,.40,1.0);      // LV
+  lobe(.38,-.38,.62,.46,.34,.9);      // RV
+  lobe(-.62,-.40,.36,.32,.30,.9);     // RA
+  lobe(-.58,.38,.30,.28,.30,.9);      // LA
+  lobe(-.18,-.66,.20,.14,.32,.8);     // right auricle
+  lobe(-.08,.66,.20,.14,.32,.8);      // left auricle
+  // fat in the AV and interventricular grooves
+  tube([[-.2,.2],[.2,.15],[.65,.05],[1.0,.1]],4.5*rr,FAT,.35);
+  tube([[-.28,-.05],[-.1,-.5],[.2,-.85],[.7,-.95],[1.0,-.5]],4.5*rr,FAT,.35);
+  tube([[-.25,.25],[.0,.65],[.35,.95],[.75,.95]],4.5*rr,FAT,.30);
+  // great vessels (short stubs)
+  tube([[-.35,.25],[-.7,.3],[-.95,.62],[-.85,.98]],9*rr,ART,.45);   // aorta and arch
+  tube([[-.25,-.2],[-.55,-.32],[-.82,-.12]],8*rr,VEN,.45);          // pulmonary trunk
+  tube([[-.7,-.75],[-.86,-1.05]],8*rr,VEN,.45);                      // SVC
+  tube([[-.45,-.95],[-.32,-1.2]],8*rr,VEN,.45);                      // IVC
+  // coronary arteries and a few branches
+  const cor=(pts,w)=>{ sm(pts); c.lineWidth=w; c.strokeStyle=ART; c.globalAlpha=.75*K; c.stroke(); };
+  cor([[-.2,.2],[.2,.15],[.65,.05],[1.0,.1]],2*rr+.5);  cor([[.2,.15],[.35,.45]],1.3*rr+.4);  cor([[.45,.1],[.65,.5]],1.3*rr+.4);
+  cor([[-.28,-.05],[-.1,-.5],[.2,-.85],[.7,-.95],[1.0,-.5]],2*rr+.5);  cor([[.2,-.85],[.35,-.5]],1.3*rr+.4);
+  cor([[-.25,.25],[.0,.65],[.35,.95],[.75,.95]],1.8*rr+.5);  cor([[.0,.65],[.2,.35]],1.3*rr+.4);
+  // soft specular highlight on the left ventricle
+  const h=L(.35,.55), hg=c.createRadialGradient(h[0],h[1],0,h[0],h[1],R*.30);
+  hg.addColorStop(0,'rgba(255,255,255,'+(.28*K)+')'); hg.addColorStop(1,'rgba(255,255,255,0)');
+  c.globalAlpha=1; c.fillStyle=hg; c.beginPath(); c.arc(h[0],h[1],R*.30,0,Math.PI*2); c.fill();
+  c.restore();
+}
+
+/* ---- the same faint, shaded heart as the frontal one, as a 3D model (heart frame u: base->apex, v: toward the left/upper side, w: anterior) ---- */
+const HF=(()=>{ const nz=v=>{ const m=Math.hypot(v[0],v[1],v[2]); return v.map(q=>q/m); };
+  const A=nz([.60,.72,.35]), S1=nz([.77,-.64,0]); let W=nz([A[1]*S1[2]-A[2]*S1[1],A[2]*S1[0]-A[0]*S1[2],A[0]*S1[1]-A[1]*S1[0]]); if(W[2]<0) W=W.map(q=>-q);
+  return {A,S1,W,H:.52}; })();
+const hp=(u,v,w)=>[0,1,2].map(i=>(HF.A[i]*u+HF.S1[i]*v+HF.W[i]*w)*HF.H);   // -> patient coords (x left, y down, z anterior), radius units
+// Q(x,y,z) -> [screenX, screenY, depth (larger = nearer the viewer)]
+
+function silE(Q,u,v,w,ru,rv,rw){ const ctr=hp(u,v,w), s0=Q(...ctr);
+  const e=[[ru,0,0],[0,rv,0],[0,0,rw]].map(r=>{ const d=hp(r[0],r[1],r[2]), q=Q(ctr[0]+d[0],ctr[1]+d[1],ctr[2]+d[2]); return [q[0]-s0[0],q[1]-s0[1]]; });
+  let a=0,b=0,d=0; e.forEach(q=>{ a+=q[0]*q[0]; b+=q[0]*q[1]; d+=q[1]*q[1]; });
+  const m=(a+d)/2, df=Math.sqrt(((a-d)/2)**2+b*b);
+  return {x:s0[0],y:s0[1],z:s0[2],rx:Math.sqrt(m+df),ry:Math.sqrt(Math.max(m-df,1e-6)),ang:.5*Math.atan2(2*b,a-d)}; }
+// the four chambers as the same ellipsoids in every view (shaded muscle + coloured fill + outline + label)
+const CHAMBERS=[{n:'LV',u:.28,v:.26,w:-.12,r:[.66,.32,.30],k:'L',al:.15},{n:'RV',u:.30,v:-.28,w:.26,r:[.58,.25,.26],k:'R',al:.15},
+  {n:'RA',u:-.62,v:-.38,w:.08,r:[.28,.24,.24],k:'R',al:.12},{n:'LA',u:-.62,v:.26,w:-.30,r:[.26,.22,.24],k:'L',al:.12}];
+function heartChambers(c,Q,inten){
+  inten=inten||{};
+  CHAMBERS.map(p=>({p,e:silE(Q,p.u,p.v,p.w,p.r[0],p.r[1],p.r[2])})).sort((a,b)=>a.e.z-b.e.z).forEach(({p,e})=>{
+    shadeEll(c,e.x,e.y,e.rx,e.ry,e.ang,p.al,true);
+    c.save(); c.beginPath(); c.ellipse(e.x,e.y,e.rx,e.ry,e.ang,0,Math.PI*2);
+    c.fillStyle=p.k==='L'?colors.accent:colors.teal; c.globalAlpha=.16; c.fill();
+    if(inten.all>0.02&&(p.n==='LV'||p.n==='RV')){ c.fillStyle=colors.teal; c.globalAlpha=.30*inten.all; c.fill(); }
+    c.globalAlpha=.65; c.strokeStyle=colors.muted; c.lineWidth=1.3; c.stroke();
+    c.globalAlpha=.85; c.fillStyle=colors.ink; c.font='600 9px '+MONO; c.textAlign='center'; c.textBaseline='middle'; c.fillText(p.n,e.x,e.y);
+    c.restore(); });
+}
+// frontal-schematic coordinates (u,v) of the old drawing -> heart frame
+const fh=(u,v,w)=>hp(u*.85-.12,v*.75,w===undefined?.1:w);
+function heartGhost(c,Q0,R,sc,noVessels){
+  sc=sc||1.3; const C0=hp(.22,0,0), Q=(x,y,z)=>Q0(C0[0]+(x-C0[0])*sc,C0[1]+(y-C0[1])*sc,C0[2]+(z-C0[2])*sc);
+  const K=0.30, rr=R/117, ART='#c0392b', VEN='#4d6fa8', FAT='#e2b04a';
+  const sil=(u,v,w,ru,rv,rw)=>{ const ctr=hp(u,v,w), s0=Q(...ctr);
+    const e=[[ru,0,0],[0,rv,0],[0,0,rw]].map(r=>{ const d=hp(r[0],r[1],r[2]), q=Q(ctr[0]+d[0],ctr[1]+d[1],ctr[2]+d[2]); return [q[0]-s0[0],q[1]-s0[1]]; });
+    let a=0,b=0,d=0; e.forEach(q=>{ a+=q[0]*q[0]; b+=q[0]*q[1]; d+=q[1]*q[1]; });
+    const m=(a+d)/2, df=Math.sqrt(((a-d)/2)**2+b*b);
+    return {x:s0[0],y:s0[1],z:s0[2],rx:Math.sqrt(m+df),ry:Math.sqrt(Math.max(m-df,1e-6)),ang:.5*Math.atan2(2*b,a-d)}; };
+  const path=pts=>{ const q=pts.map(p=>Q(...hp(p[0],p[1],p[2]))); c.beginPath(); c.moveTo(q[0][0],q[0][1]);
+    for(let i=1;i<q.length-1;i++) c.quadraticCurveTo(q[i][0],q[i][1],(q[i][0]+q[i+1][0])/2,(q[i][1]+q[i+1][1])/2);
+    c.lineTo(q[q.length-1][0],q[q.length-1][1]); };
+  const tube=(pts,w,col,al)=>{ path(pts); c.lineWidth=w+2.6*rr; c.strokeStyle='#3a1f1f'; c.globalAlpha=al*.55*K; c.stroke(); path(pts); c.lineWidth=w; c.strokeStyle=col; c.globalAlpha=al*K; c.stroke(); };
+  c.save(); c.lineCap='round'; c.lineJoin='round';
+  // whole heart body with a soft drop shadow
+  const B=sil(.22,0,0,1.08,.66,.58);
+  c.save(); c.translate(B.x,B.y); c.rotate(B.ang); c.beginPath(); c.ellipse(0,0,B.rx,B.ry,0,0,Math.PI*2);
+  c.shadowColor='rgba(40,10,10,'+(.45*K)+')'; c.shadowBlur=14*rr; c.shadowOffsetX=3*rr; c.shadowOffsetY=4*rr;
+  c.fillStyle='rgba(150,60,58,'+(.30*K)+')'; c.globalAlpha=1; c.fill(); c.restore();
+  // chambers and auricles as shaded lobes, far to near
+  [[.28,.26,-.12,.66,.36,.34,.40],[.30,-.28,.26,.60,.30,.28,.34],[-.62,-.38,.08,.30,.26,.26,.30],[-.62,.26,-.30,.28,.24,.26,.30],
+   [-.30,-.55,.30,.18,.12,.10,.32],[-.22,.55,.10,.18,.12,.10,.32]]
+   .map(l=>({l,e:sil(l[0],l[1],l[2],l[3],l[4],l[5])})).sort((p,q)=>p.e.z-q.e.z)
+   .forEach(o=>shadeEll(c,o.e.x,o.e.y,o.e.rx,o.e.ry,o.e.ang,o.l[6]*K,false));
+  // fat in the grooves, then great vessels and coronary arteries
+  const RCA=[[-.38,-.04,.15],[-.2,-.4,.18],[.1,-.68,.15],[.6,-.76,.05],[.9,-.4,-.05]];
+  const LAD=[[-.3,.16,.45],[.1,.12,.5],[.55,.04,.45],[.9,.08,.3]];
+  const LCX=[[-.35,.2,-.2],[-.1,.52,-.25],[.25,.76,-.25],[.65,.76,-.2]];
+  tube(LAD,4.5*rr,FAT,.35); tube(RCA,4.5*rr,FAT,.35); tube(LCX,4.5*rr,FAT,.30);
+  if(!noVessels){
+  tube([[-.35,.25,-.05],[-.7,.3,-.05],[-.95,.62,-.05],[-.85,.98,-.05]],9*rr,ART,.45);   // aorta and arch
+  tube([[-.25,-.2,.1],[-.55,-.32,.1],[-.82,-.12,.05]],8*rr,VEN,.45);                   // pulmonary trunk
+  tube([[-.7,-.75,.05],[-.86,-1.05,.05]],8*rr,VEN,.45);                               // SVC
+  tube([[-.45,-.95,.05],[-.32,-1.2,.05]],8*rr,VEN,.45);                               // IVC
+  }
+  const cor=(pts,w)=>{ path(pts); c.lineWidth=w; c.strokeStyle=ART; c.globalAlpha=.75*K; c.stroke(); };
+  cor(LAD,2*rr+.5); cor(RCA,2*rr+.5); cor(LCX,1.8*rr+.5);
+  c.restore();
+}
+function drawHeart(c,cx,cy,R,t,p){
+  const Q=(x,y,z)=>[cx+x*R, cy+y*R, z];          // front view: screen x = patient left, screen y = down, depth = anterior
+  const inten = live() ? siteInt(p,t) : {};
+  c.save();
+  heartGhost(c,Q,R,1.3);
+  heartChambers(c,Q,inten);
+  for(const k in SITES){
+    const i=inten[k]; if(!(i>0.04)) continue;
+    const [u,v,r]=SITES[k], q=Q(...fh(u,v)), rad=r*R*.56;
+    const g=c.createRadialGradient(q[0],q[1],0,q[0],q[1],rad);
+    g.addColorStop(0,colors.accent); g.addColorStop(1,colors.accent+'00');
+    c.globalAlpha=.6*i; c.fillStyle=g; c.beginPath(); c.arc(q[0],q[1],rad,0,Math.PI*2); c.fill();
+  }
+  // conduction system: SA node -> AV node -> His bundle -> right and left bundle branches
+  c.globalAlpha=.8; c.strokeStyle=colors.ink; c.lineWidth=1.4; c.lineJoin='round';
+  const P2=a=>{ const q=Q(...fh(a[0],a[1])); return q; };
+  const line=(pts,dash)=>{ c.setLineDash(dash||[]); c.beginPath(); pts.forEach((a,i)=>{ const [x,y]=P2(a); i?c.lineTo(x,y):c.moveTo(x,y); }); c.stroke(); c.setLineDash([]); };
+  line([[-.9,-.45],[-.5,-.15]],[3,3]);
+  line([[-.5,-.15],[-.3,-.05],[-.1,0]]);
+  line([[-.1,0],[.35,-.25],[.8,-.35]]);
+  line([[-.1,0],[.2,.2],[.1,.6]]);
+  line([[.2,.2],[.55,.45]]);
+  c.fillStyle=colors.ink;
+  [[-.9,-.45],[-.5,-.15],[-.1,0],[.8,-.35],[.1,.6],[.55,.45]].forEach(a=>{ const [x,y]=P2(a); c.beginPath(); c.arc(x,y,2.4,0,Math.PI*2); c.fill(); });
+  c.globalAlpha=.9; c.font='500 9.5px '+MONO; c.textAlign='center'; c.textBaseline='middle';
+  [['SA',-.9,-.45,-12,-4],['AVN',-.5,-.15,-4,12],['RBB',.8,-.35,-12,8],['LBB',.1,.6,12,0]].forEach(q=>{ const [x,y]=P2([q[1],q[2]]); c.fillText(q[0],x+q[3],y+q[4]); });
+  c.restore();
+}
+function drawTorso(c,S,cx,cy,R){
+  c.save();
+  c.strokeStyle=colors.muted; c.lineWidth=1.2;
+  c.globalAlpha=.4; c.beginPath(); c.ellipse(cx,cy+R*0.04,R*0.94,R*0.74,0,0,Math.PI*2); c.stroke();
+  // sternum (front) and vertebra (back)
+  c.globalAlpha=.35; c.lineWidth=5; c.lineCap='round'; c.beginPath(); c.moveTo(cx-R*0.10,cy-R*0.66); c.lineTo(cx+R*0.10,cy-R*0.66); c.stroke(); c.lineCap='butt';
+  c.lineWidth=1.2; c.beginPath(); c.arc(cx,cy+R*0.64,R*0.07,0,Math.PI*2); c.stroke();
+  // faint lungs and pericardium for a more realistic chest section
+  c.globalAlpha=.07; c.fillStyle=colors.muted;
+  c.beginPath(); c.ellipse(cx-R*0.58,cy+R*0.0,R*0.30,R*0.46,.1,0,Math.PI*2); c.fill();           // right lung (screen left)
+  c.beginPath(); c.ellipse(cx+R*0.60,cy+R*0.06,R*0.27,R*0.44,-.1,0,Math.PI*2); c.fill();         // left lung (cardiac notch)
+  c.globalAlpha=.35; c.lineWidth=1; c.setLineDash([3,3]); c.beginPath(); c.ellipse(cx+R*0.0,cy-R*0.02,R*0.47,R*0.34,-35*D,0,Math.PI*2); c.stroke(); c.setLineDash([]); // pericardium
+  // heart cross-section with the same shaded muscle texture: RV (anterior, right) wrapped around the thick-walled LV (posterior, left)
+  const rot=-35*D, K=.24;
+  heartGhost(c,(x,y,z)=>[cx+(x-.08)*R, cy-(z-.04)*R, y],R,1.3,true);  // ventricular level: no great vessels
+  shadeEll(c,cx-.12*R,cy-.16*R,.30*R,.16*R,rot,.34*K+.06,true);
+  shadeEll(c,cx+.12*R,cy+.07*R,.31*R,.23*R,rot,.42*K+.06,true);
+  c.save(); c.translate(cx+.12*R,cy+.07*R); c.rotate(rot); c.scale(.19*R,.12*R);
+  c.beginPath(); c.arc(0,0,1,0,Math.PI*2); c.fillStyle='rgba(120,40,48,.16)'; c.globalAlpha=1; c.fill(); c.restore();
+  c.save(); c.translate(cx-.12*R,cy-.16*R); c.rotate(rot); c.scale(.20*R,.07*R);
+  c.beginPath(); c.arc(0,0,1,0,Math.PI*2); c.fillStyle='rgba(77,111,168,.13)'; c.globalAlpha=1; c.fill(); c.restore();
+  [[-.12,-.16,.30,.16,colors.teal],[.12,.07,.31,.23,colors.accent]].forEach(q=>{ c.beginPath(); c.ellipse(cx+q[0]*R,cy+q[1]*R,q[2]*R,q[3]*R,rot,0,Math.PI*2); c.fillStyle=q[4]; c.globalAlpha=.16; c.fill(); });
+  c.strokeStyle=colors.muted; c.lineWidth=1.3; c.globalAlpha=.65;
+  [[-.12,-.16,.30,.16],[.12,.07,.31,.23]].forEach(q=>{ c.beginPath(); c.ellipse(cx+q[0]*R,cy+q[1]*R,q[2]*R,q[3]*R,rot,0,Math.PI*2); c.stroke(); });
+  // interventricular septum (thick band on the LV side facing the RV), papillary muscles, epicardial fat
+  c.strokeStyle='rgba(150,60,58,1)'; c.globalAlpha=.16; c.lineWidth=Math.max(4,R*.05); c.lineCap='round';
+  c.beginPath(); c.ellipse(cx+.12*R,cy+.07*R,.27*R,.19*R,rot,-2.8,-0.55); c.stroke(); c.lineCap='butt';
+  c.fillStyle='rgba(110,34,38,1)'; c.globalAlpha=.14;
+  [[.17,.14,.035],[.10,.17,.03],[.21,.05,.028]].forEach(q=>{ c.beginPath(); c.arc(cx+q[0]*R,cy+q[1]*R,q[2]*R,0,Math.PI*2); c.fill(); });
+  c.strokeStyle='#e2b04a'; c.globalAlpha=.22; c.lineWidth=1.6; c.setLineDash([2,4]);
+  c.beginPath(); c.ellipse(cx+.10*R,cy+.0*R,.43*R,.30*R,rot,0,Math.PI*2); c.stroke(); c.setLineDash([]);
+  c.fillStyle='#c0392b'; c.globalAlpha=.30;
+  [[.02,-.27],[-.36,-.08],[.34,-.07]].forEach(q=>{ c.beginPath(); c.arc(cx+q[0]*R,cy+q[1]*R,2.6,0,Math.PI*2); c.fill(); });
+  c.globalAlpha=.85; c.fillStyle=colors.ink; c.font='600 9px '+MONO; c.textAlign='center'; c.textBaseline='middle';
+  c.fillText('RV',cx-.30*R,cy-.27*R); c.fillText('LV',cx+.12*R,cy+.07*R);
+  c.globalAlpha=.9; c.font='500 10px '+MONO;
+  c.textAlign='right'; c.fillText(T('患者の左→','Patient’s left →'),S-6,S-10);
+  c.restore();
+}
+
+
+/* ---- orientation badges (top right of each plane) and time-direction chevrons ---- */
+function badgeBox(c,S){ const b=Math.round(Math.max(38,Math.min(52,S*.12))); return {x:S-b-2,y:2,b}; }
+function badgeFrame(c,x,y,b){ c.save(); c.globalAlpha=.92; c.fillStyle=colors.surface; c.strokeStyle=colors.line; c.lineWidth=1;
+  c.beginPath(); if(c.roundRect) c.roundRect(x,y,b,b,6); else c.rect(x,y,b,b); c.fill(); c.stroke(); c.restore(); }
+function badgeFront(c,S){
+  const {x,y,b}=badgeBox(c,S), cx=x+b/2; badgeFrame(c,x,y,b);
+  c.save(); c.strokeStyle=colors.ink; c.fillStyle=colors.ink; c.lineWidth=1.4; c.lineCap='round'; c.globalAlpha=.85;
+  const h=b*.12, top=y+b*.12;
+  c.beginPath(); c.arc(cx,top+h,h,0,Math.PI*2); c.stroke();                       // head
+  c.beginPath(); c.moveTo(cx,top+2*h); c.lineTo(cx,y+b*.62); c.stroke();          // trunk
+  c.beginPath(); c.moveTo(cx-b*.22,top+2.9*h); c.lineTo(cx+b*.22,top+2.9*h); c.stroke(); // arms
+  c.beginPath(); c.moveTo(cx,y+b*.62); c.lineTo(cx-b*.12,y+b*.78); c.moveTo(cx,y+b*.62); c.lineTo(cx+b*.12,y+b*.78); c.stroke();
+  c.font='700 9px '+MONO; c.textAlign='center'; c.textBaseline='middle';
+  c.fillStyle=colors.accent; c.fillText('L',x+b*.88,top+2.9*h); c.fillStyle=colors.muted; c.fillText('R',x+b*.12,top+2.9*h);
+  c.fillStyle=colors.muted; c.font='500 8px '+MONO; c.fillText(T('正面から','front view'),cx,y+b*.91);
+  c.restore();
+}
+function badgeHoriz(c,S){
+  const {x,y,b}=badgeBox(c,S), cx=x+b/2, cy=y+b*.44; badgeFrame(c,x,y,b);
+  c.save(); c.lineJoin='round';
+  // body outline seen from the feet (anterior up)
+  c.strokeStyle=colors.ink; c.lineWidth=1.3; c.globalAlpha=.85;
+  c.beginPath(); c.ellipse(cx,cy,b*.38,b*.27,0,0,Math.PI*2); c.stroke();
+  c.beginPath(); c.moveTo(cx-b*.05,cy-b*.26); c.lineTo(cx,cy-b*.34); c.lineTo(cx+b*.05,cy-b*.26); c.stroke();   // anterior marker
+  // both soles inside the body: toes up, arches (concave side) toward the midline; patient's right on the screen left
+  [-1,1].forEach(sd=>{
+    const fx=cx+sd*b*.15, rx=b*.10, ry=b*.20, col=sd>0?colors.accent:colors.ink;
+    const P=(u,v)=>[fx+sd*u*rx,cy+v*ry];    // u: + lateral, - medial ; v: - toes, + heel
+    const pts=[[0,-1],[ .95,-.55],[ .9,.35],[.45,1],[-.35,.95],[-.5,.45],[-.15,0],[-.55,-.5],[-.45,-.92]];
+    c.beginPath(); let q=P(...pts[0]); c.moveTo(q[0],q[1]);
+    for(let i=1;i<=pts.length;i++){ const p0=P(...pts[i%pts.length]), p1=P(...pts[(i+1)%pts.length]); c.quadraticCurveTo(p0[0],p0[1],(p0[0]+p1[0])/2,(p0[1]+p1[1])/2); }
+    c.closePath(); c.fillStyle=col; c.globalAlpha=.18; c.fill(); c.strokeStyle=col; c.lineWidth=1.2; c.globalAlpha=.9; c.stroke(); });
+  c.globalAlpha=.95; c.font='700 9px '+MONO; c.textAlign='center'; c.textBaseline='middle';
+  c.fillStyle=colors.accent; c.fillText('L',x+b*.93,cy); c.fillStyle=colors.muted; c.fillText('R',x+b*.07,cy);
+  c.fillStyle=colors.teal; c.fillText(T('前','A'),cx+b*.16,cy-b*.33);
+  c.fillStyle=colors.muted; c.font='500 8px '+MONO; c.fillText(T('足側から','from feet'),cx,y+b*.91);
+  c.restore();
+}
+function badge3D(c,S,P0){
+  const b=Math.round(Math.max(60,Math.min(78,S*.2))), x=S-b-2, y=2, cx=x+b/2, cy=y+b*.42, r=b*.44; badgeFrame(c,x,y,b);
+  const o=P0(0,0,0), Q=(px,py,pz)=>{ const q=P0(px,py,pz); return [cx+(q[0]-o[0])*r,cy+(q[1]-o[1])*r,q[2]]; };
+  const seg=(a,b2,col,w)=>{ const p=Q(...a), q=Q(...b2); c.strokeStyle=col; c.lineWidth=w||1.4; c.globalAlpha=((p[2]+q[2])/2)<-.05?.45:.9; c.beginPath(); c.moveTo(p[0],p[1]); c.lineTo(q[0],q[1]); c.stroke(); };
+  c.save(); c.lineCap='round';
+  const K=colors.ink, Lc=colors.accent;
+  seg([0,.55,0],[0,-.2,0],K);                                   // trunk
+  seg([0,.42,0],[-.32,.42,0],K); seg([-.32,.42,0],[-.42,0,0],K);  // right arm
+  seg([0,.42,0],[.32,.42,0],Lc); seg([.32,.42,0],[.42,0,0],Lc);   // left arm
+  seg([0,-.2,0],[-.15,-.85,0],K); seg([0,-.2,0],[.15,-.85,0],Lc); // legs
+  seg([-.15,-.85,0],[-.15,-.85,.2],K); seg([.15,-.85,0],[.15,-.85,.2],Lc); // feet point forward
+  const h=Q(0,.75,0); c.globalAlpha=.9; c.strokeStyle=K; c.lineWidth=1.4; c.beginPath(); c.arc(h[0],h[1],r*.15,0,Math.PI*2); c.stroke();
+  seg([0,.75,.17],[0,.75,.3],K);                                 // nose (front)
+  const n=Q(0,.25,0), f=Q(0,.25,.55); c.globalAlpha=.95; c.strokeStyle=colors.teal; c.lineWidth=1.6; c.beginPath(); c.moveTo(n[0],n[1]); c.lineTo(f[0],f[1]); c.stroke();
+  c.font='700 9px '+MONO; c.textAlign='center'; c.textBaseline='middle';
+  c.fillStyle=colors.teal; const fl=Q(0,.25,.82); c.fillText(T('前','A'),fl[0],fl[1]);
+  c.fillStyle=Lc; const ll=Q(.72,.15,0); c.fillText('L',ll[0],ll[1]);
+  c.globalAlpha=.8; c.fillStyle=colors.muted; c.font='500 8px '+MONO; c.fillText(T('体の向き','body'),cx,y+b*.93);
+  c.restore();
+}
+// direction-of-time chevron: shown only while the tip is actually returning toward the centre, just behind the tip, moving with it
+function returnChevron(c,F,i,n,ctr,col){
+  if(i<4||i>=n) return;
+  const p=F(i), q=F(i-2);
+  const dNow=Math.hypot(p[0]-ctr[0],p[1]-ctr[1]), dPrev=Math.hypot(q[0]-ctr[0],q[1]-ctr[1]);
+  if(dNow<10 || dNow>dPrev-0.2) return;                    // not returning (or almost at the centre): no chevron
+  let j=i-1, m=F(j); while(j>0 && Math.hypot(m[0]-p[0],m[1]-p[1])<12){ j--; m=F(j); }   // a point ~12 px behind the tip on the path
+  const an=Math.atan2(p[1]-m[1],p[0]-m[0]), sz=6, mx=(p[0]+m[0])/2, my=(p[1]+m[1])/2;
+  c.save(); c.fillStyle=col; c.strokeStyle=colors.surface; c.lineWidth=1.2; c.globalAlpha=.95;
+  c.beginPath(); c.moveTo(mx+Math.cos(an)*sz,my+Math.sin(an)*sz);
+  c.lineTo(mx+Math.cos(an+2.5)*sz,my+Math.sin(an+2.5)*sz); c.lineTo(mx+Math.cos(an-2.5)*sz,my+Math.sin(an-2.5)*sz); c.closePath(); c.stroke(); c.fill();
+  c.restore();
+}
+
+/* ---------- planes ---------- */
+const live=()=>st.mode!=='manual';
+function curVec(){ return live() ? vecAt(cur.mp,st.t) : st.mvs[st.sel]; }
+function drawPlane(kind){
+  const front=kind==='front', c=front?fctx:hctx, S=fS, cx=S/2, cy=S/2, R=S*0.39, k=R*0.6;
+  const manual=st.mode==='manual', p=cur.mp, s=cur.ms, t=manual?cur.pks[st.sel].t:st.t;
+  const idx=front?[0,1,2,3,4,5]:[6,7,8,9,10,11];
+  const SX=v=>cx+v[0]*k, SY=v=>front?cy+v[1]*k:cy-v[2]*k;
+  const dir=a=>front?[Math.cos(a*D),Math.sin(a*D)]:[Math.cos(a*D),-Math.sin(a*D)];
+  c.clearRect(0,0,S,S);
+  c.lineWidth=1; c.strokeStyle=colors.gM; c.globalAlpha=.8;
+  [R,R*.5].forEach(r=>{ c.beginPath(); c.arc(cx,cy,r,0,Math.PI*2); c.stroke(); });
+  c.globalAlpha=1;
+  if(!front) drawTorso(c,S,cx,cy,R);
+  c.font='600 12px '+MONO; c.textAlign='center'; c.textBaseline='middle';
+  idx.forEach(i=>{
+    const ld=LEADS[i], [ux,uy]=dir(ld.a);
+    c.strokeStyle=colors.muted; c.lineWidth=1;
+    c.globalAlpha=.3; c.setLineDash([4,4]); c.beginPath(); c.moveTo(cx,cy); c.lineTo(cx-ux*R,cy-uy*R); c.stroke();
+    c.setLineDash([]); c.globalAlpha=.65; c.beginPath(); c.moveTo(cx,cy); c.lineTo(cx+ux*R,cy+uy*R); c.stroke();
+    c.globalAlpha=1; c.fillStyle=colors.ink; c.fillText(ld.n,cx+ux*(R+17),cy+uy*(R+17));
+  });
+  if(front) drawHeart(c,cx,cy,R,t,p);
+  // loops
+  const segs=[[p.win.P,colors.amber,1.8],[p.win.QRS,colors.accent,2.4],[p.win.STT,colors.teal,1.8]];
+  const upto=manual ? s.n-1 : Math.floor(t/STEP);
+  segs.forEach(([w,col,lw])=>{
+    const i0=Math.ceil(w[0]/STEP), i1=Math.min(Math.floor(w[1]/STEP),s.n-1);
+    const path=(a,b)=>{ c.beginPath(); for(let i=a;i<=b;i++){ const x=SX(s.V[i]), y=SY(s.V[i]); i===a?c.moveTo(x,y):c.lineTo(x,y); } c.stroke(); };
+    c.strokeStyle=col; c.lineWidth=lw; c.lineJoin='round'; c.lineCap='round';
+    c.globalAlpha=.3; path(i0,i1);
+    if(upto>=i0){ c.globalAlpha=1; path(i0,Math.min(upto,i1)); }
+    
+  });
+  c.globalAlpha=1;
+  if(!manual){ const ci=Math.floor(t/STEP), w=p.win, gc=t<w.QRS[0]?colors.amber:(t<=w.QRS[1]?colors.accent:colors.teal);
+    returnChevron(c,i=>[SX(s.V[i]),SY(s.V[i])],ci,s.n,[cx,cy],gc); }
+  // current vector and projections
+  const v=curVec(), tx=SX(v), ty=SY(v), len=Math.hypot(tx-cx,ty-cy);
+  idx.forEach(i=>{
+    const ld=LEADS[i], pr=proj(v,ld), [ux,uy]=dir(ld.a), fx=cx+ux*pr*k, fy=cy+uy*pr*k;
+    if(len>6){ c.strokeStyle=manual?GCOL(st.sel):colors.accent; c.globalAlpha=.4; c.lineWidth=1; c.setLineDash([3,3]); c.beginPath(); c.moveTo(tx,ty); c.lineTo(fx,fy); c.stroke(); c.setLineDash([]); }
+    c.globalAlpha=1; c.lineWidth=1.6; c.strokeStyle=colors.ink; c.fillStyle= pr>=0 ? colors.ink : colors.surface;
+    c.beginPath(); c.arc(fx,fy,3.6,0,Math.PI*2); c.fill(); c.stroke();
+  });
+  if(len>3){
+    const an=Math.atan2(ty-cy,tx-cx);
+    c.strokeStyle=manual?GCOL(st.sel):colors.accent; c.fillStyle=c.strokeStyle; c.lineWidth=3; c.lineCap='round';
+    c.beginPath(); c.moveTo(cx,cy); c.lineTo(tx-Math.cos(an)*6,ty-Math.sin(an)*6); c.stroke();
+    c.beginPath(); c.moveTo(tx,ty); c.lineTo(tx-Math.cos(an-.4)*11,ty-Math.sin(an-.4)*11); c.lineTo(tx-Math.cos(an+.4)*11,ty-Math.sin(an+.4)*11); c.closePath(); c.fill();
+  }
+  if(manual){ GROUPS.forEach(g=>{ if(g===st.sel) return; const w=st.mvs[g]; c.strokeStyle=GCOL(g); c.fillStyle=colors.surface; c.lineWidth=2; c.beginPath(); c.arc(SX(w),SY(w),5,0,Math.PI*2); c.fill(); c.stroke(); }); }
+  c.fillStyle=colors.ink; c.beginPath(); c.arc(cx,cy,3,0,Math.PI*2); c.fill();
+  front?badgeFront(c,S):badgeHoriz(c,S);
+}
+
+/* ---------- 3D view (oblique, orbit by drag) ---------- */
+// heart as four ellipsoids (LV, RV, RA, LA) in patient coordinates (x left, y down, z anterior); orthographic silhouette of each
+function heart3D(c,P,R){ heartChambers(c,(x,y,z)=>P(x,-y,z)); }
+function draw3D(){
+  const c=dctx, S=fS, cx=S/2, cy=S/2+S*0.02, R=S*0.36, k=R*0.6;
+  const manual=st.mode==='manual', p=cur.mp, s=cur.ms, t=manual?cur.pks[st.sel].t:st.t;
+  const ya=st.yaw*D, pa=st.pitch*D, cyw=Math.cos(ya), syw=Math.sin(ya), cp=Math.cos(pa), sp=Math.sin(pa);
+  // world: X = patient's left (screen right), Y = up, Z = anterior (toward viewer)
+  const P=(x,y,z)=>{ const X=x*cyw+z*syw, Z0=-x*syw+z*cyw, Y=y*cp-Z0*sp, Z=y*sp+Z0*cp; return [cx+X*R, cy-Y*R, Z]; };
+  const PV=(v,u)=>{ const q=P(v[0]*u,-v[1]*u,v[2]*u); return q; };   // patient vector (x,y-down,z) -> screen, u = k/R
+  const u=k/R;
+  c.clearRect(0,0,S,S);
+  // two reference discs: frontal (XY) and horizontal (XZ)
+  const ring=(fn,col,al)=>{ c.beginPath(); for(let i=0;i<=72;i++){ const a=i/72*Math.PI*2, q=fn(a); i?c.lineTo(q[0],q[1]):c.moveTo(q[0],q[1]); } c.closePath(); c.fillStyle=col; c.globalAlpha=al; c.fill(); c.globalAlpha=.8; c.strokeStyle=colors.gM; c.lineWidth=1; c.stroke(); c.globalAlpha=1; };
+  ring(a=>P(Math.cos(a),Math.sin(a),0),colors.accent,.05);
+  ring(a=>P(Math.cos(a),0,Math.sin(a)),colors.teal,.07);
+  heartGhost(c,(x,y,z)=>P(x,-y,z),R);
+  heart3D(c,P,R,cx,cy,cyw,syw,cp,sp);
+  // lead axes
+  c.font='600 10px '+MONO; c.textAlign='center'; c.textBaseline='middle';
+  LEADS.forEach((ld,i)=>{
+    const a=ld.a*D, fr=i<6, w=fr?[Math.cos(a),-Math.sin(a),0]:[Math.cos(a),0,Math.sin(a)];
+    const e=P(w[0],w[1],w[2]), o=P(0,0,0), l=P(w[0]*1.16,w[1]*1.16,w[2]*1.16);
+    c.strokeStyle=fr?colors.accent:colors.teal; c.globalAlpha=.55; c.lineWidth=1; c.beginPath(); c.moveTo(o[0],o[1]); c.lineTo(e[0],e[1]); c.stroke();
+    c.globalAlpha=1; c.fillStyle=fr?colors.accent:colors.teal; c.fillText(ld.n,l[0],l[1]+(ld.n==='I'?-7:ld.n==='V6'?7:0));
+  });
+  // loops
+  const segs=[[p.win.P,colors.amber,1.6],[p.win.QRS,colors.accent,2.2],[p.win.STT,colors.teal,1.6]];
+  const upto=manual ? s.n-1 : Math.floor(t/STEP);
+  segs.forEach(([w,col,lw])=>{
+    const i0=Math.ceil(w[0]/STEP), i1=Math.min(Math.floor(w[1]/STEP),s.n-1);
+    const path=(a,b)=>{ c.beginPath(); for(let i=a;i<=b;i++){ const q=PV(s.V[i],u); i===a?c.moveTo(q[0],q[1]):c.lineTo(q[0],q[1]); } c.stroke(); };
+    c.strokeStyle=col; c.lineWidth=lw; c.lineJoin='round'; c.lineCap='round';
+    c.globalAlpha=.3; path(i0,i1);
+    if(upto>=i0){ c.globalAlpha=1; path(i0,Math.min(upto,i1)); }
+    
+  });
+  c.globalAlpha=1;
+  if(!manual){ const ci=Math.floor(t/STEP), w=p.win, gc=t<w.QRS[0]?colors.amber:(t<=w.QRS[1]?colors.accent:colors.teal), o0=P(0,0,0);
+    returnChevron(c,i=>{ const q=PV(s.V[i],u); return [q[0],q[1]]; },ci,s.n,[o0[0],o0[1]],gc); }
+  // current vector, its shadows on the two planes, and the arrow
+  const v=curVec(), col=manual?GCOL(st.sel):colors.accent, o=P(0,0,0), tip=PV(v,u);
+  const shF=P(v[0]*u,-v[1]*u,0), shH=P(v[0]*u,0,v[2]*u);
+  if(nrm(v)>0.03){
+    c.strokeStyle=col; c.lineWidth=1; c.setLineDash([3,3]); c.globalAlpha=.55;
+    [shF,shH].forEach(q=>{ c.beginPath(); c.moveTo(tip[0],tip[1]); c.lineTo(q[0],q[1]); c.stroke(); });
+    c.setLineDash([]); c.globalAlpha=.9;
+    c.fillStyle=colors.accent; c.beginPath(); c.arc(shF[0],shF[1],3,0,Math.PI*2); c.fill();
+    c.fillStyle=colors.teal; c.beginPath(); c.arc(shH[0],shH[1],3,0,Math.PI*2); c.fill();
+    c.globalAlpha=1;
+    const dx=tip[0]-o[0], dy=tip[1]-o[1], len=Math.hypot(dx,dy);
+    if(len>3){
+      const an=Math.atan2(dy,dx);
+      c.strokeStyle=col; c.fillStyle=col; c.lineWidth=3; c.lineCap='round';
+      c.beginPath(); c.moveTo(o[0],o[1]); c.lineTo(tip[0]-Math.cos(an)*6,tip[1]-Math.sin(an)*6); c.stroke();
+      c.beginPath(); c.moveTo(tip[0],tip[1]); c.lineTo(tip[0]-Math.cos(an-.4)*11,tip[1]-Math.sin(an-.4)*11); c.lineTo(tip[0]-Math.cos(an+.4)*11,tip[1]-Math.sin(an+.4)*11); c.closePath(); c.fill();
+    }
+  }
+  if(manual){ GROUPS.forEach(g=>{ if(g===st.sel) return; const q=PV(st.mvs[g],u); c.strokeStyle=GCOL(g); c.fillStyle=colors.surface; c.lineWidth=2; c.beginPath(); c.arc(q[0],q[1],5,0,Math.PI*2); c.fill(); c.stroke(); }); }
+  c.fillStyle=colors.ink; c.beginPath(); c.arc(o[0],o[1],3,0,Math.PI*2); c.fill();
+  // tiny axis legend
+  c.font='500 10px '+MONO; c.textAlign='left'; c.fillStyle=colors.muted;
+  c.fillText(T('赤: 前額面（肢誘導）','Red: frontal (limb leads)'),8,S-24); c.fillText(T('青緑: 水平面（胸部誘導）','Teal: horizontal (chest leads)'),8,S-10);
+  badge3D(c,S,(x,y,z)=>{ const X=x*cyw+z*syw, Z0=-x*syw+z*cyw, Y=y*cp-Z0*sp, Z=y*sp+Z0*cp; return [X,-Y,Z]; });
+}
+
+/* ---------- lead traces ---------- */
+function drawTraces(){
+  const manual=st.mode==='manual', c=tctx,W=tW, s=cur.ms, focus=st.focus!==null;
+  const two=!narrow()&&!focus, nb=viewNb(), span=nb*TMAX, N=s.n-1;
+  const Tcur= manual ? (nb>1?TMAX:0)+cur.pks[st.sel].t : st.T;
+  const colsDef= two ? [[0,1,2,3,4,5],[6,7,8,9,10,11]] : [rowsList()];
+  const rh=rowH(), nr=colsDef[0].length, rowsH=rh*nr;
+  c.clearRect(0,0,W,tH);
+  const ci=Math.min(Math.round((Tcur%TMAX)/STEP),N);
+  const lab=rh<44;
+  colsDef.forEach((rows,cn)=>{
+    const colW= two ? W/2 : W, ox= two ? cn*colW : 0, pw=colW-LM-RM;
+    const X=ms=>ox+LM+ms/span*pw;
+    c.lineWidth=1;
+    if(focus){
+      const w=cur.mp.win;
+      [[w.P,colors.amber,'P'],[w.QRS,colors.accent,'QRS'],[[w.STT[0],Math.min(w.STT[1],TMAX)],colors.teal,'ST-T']].forEach(([r,col,name])=>{
+        c.globalAlpha=.09; c.fillStyle=col; c.fillRect(X(r[0]),TOP,X(r[1])-X(r[0]),rowsH);
+        c.globalAlpha=1; c.fillStyle=col; c.font='700 12px '+MONO; c.textAlign='center'; c.textBaseline='middle';
+        c.fillText(name,(X(r[0])+X(r[1]))/2,TOP+12);
+      });
+    }
+    // 心電図用紙: 40 ms = 1 mm、200 ms = 5 mm（25 mm/s）
+    for(let ms=0;ms<=span;ms+=40){ const major=ms%200===0; c.strokeStyle=major?colors.gM:colors.gm; c.beginPath(); c.moveTo(X(ms)+.5,TOP); c.lineTo(X(ms)+.5,TOP+rowsH); c.stroke(); }
+    c.strokeStyle=colors.line;
+    for(let i=0;i<=nr;i++){ c.beginPath(); c.moveTo(ox+LM,TOP+rh*i+.5); c.lineTo(ox+colW-RM,TOP+rh*i+.5); c.stroke(); }
+    rows.forEach((li,ri)=>{
+      const ld=LEADS[li], yc=TOP+rh*(ri+.5), sc=rh*0.30*(focus?1:st.gain), val=s.L[li][ci];
+      c.textAlign='left'; c.textBaseline='middle'; c.fillStyle=colors.ink;
+      if(focus){ c.font='700 16px '+MONO; c.fillText(ld.n,ox+8,yc-8); c.fillStyle=colors.muted; c.font='500 11px '+MONO; c.fillText(ld.a+'°',ox+8,yc+10); }
+      else if(lab){ c.font='700 12px '+MONO; c.fillText(ld.n,ox+6,yc-6); c.fillStyle=colors.muted; c.font='500 9px '+MONO; c.fillText(ld.a+'°',ox+6,yc+7); }
+      else { c.font='700 14px '+MONO; c.fillText(ld.n,ox+8,yc-8); c.fillStyle=colors.muted; c.font='500 10px '+MONO; c.fillText(ld.a+'°',ox+8,yc+9); }
+      c.strokeStyle=colors.muted; c.globalAlpha=.35; c.beginPath(); c.moveTo(ox+LM,yc); c.lineTo(ox+colW-RM,yc); c.stroke();
+      c.save(); c.beginPath(); c.rect(ox+LM,TOP+rh*ri+1,pw,rh-2); c.clip();
+      c.strokeStyle=colors.ink; c.lineJoin='round'; c.globalAlpha=1; c.lineWidth=focus?2.6:1.8;
+      c.beginPath(); for(let j=0;j<=nb*N;j++){ const x=X(j*STEP), y=yc-s.L[li][j%N]*sc; j===0?c.moveTo(x,y):c.lineTo(x,y); } c.stroke();
+      c.lineWidth=1.6; c.fillStyle= val>=0 ? colors.ink : colors.surface; c.strokeStyle=colors.ink;
+      c.beginPath(); c.arc(X(Tcur),yc-val*sc,focus?4.5:3.6,0,Math.PI*2); c.fill(); c.stroke();
+      c.restore(); c.globalAlpha=1;
+    });
+    c.globalAlpha=1;
+    c.strokeStyle=colors.accent; c.lineWidth=1.5; c.beginPath(); c.moveTo(X(Tcur),TOP); c.lineTo(X(Tcur),TOP+rowsH); c.stroke();
+    c.fillStyle=colors.muted; c.font='500 10px '+MONO; c.textBaseline='alphabetic'; c.textAlign='center';
+    const tick=focus?200:800;
+    for(let ms=0;ms<=span;ms+=tick){ c.fillText(ms+(ms===span?' ms':''),Math.min(X(ms),ox+colW-RM-12),tH-6); }
+  });
+}
+
+/* ---------- readouts ---------- */
+const readEl=$('read'); let readKey='';
+function setRead(items){
+  const key=items.map(i=>i.join('|')).join('/'); if(key===readKey) return; readKey=key;
+  readEl.innerHTML=items.map(i=>'<div'+(i[2]?' class="wide"':'')+'><small>'+i[0]+'</small><strong>'+i[1]+'</strong></div>').join('');
+}
+function phase(p,t){
+  const w=p.win;
+  if(t>=w.P[0]&&t<=w.P[1]) return T('P波（心房）','P wave (atria)');
+  if(t>w.P[1]&&t<w.QRS[0]) return T('PR部（房室結節・His束）','PR segment (AV node / His bundle)');
+  if(t>=w.QRS[0]&&t<=w.QRS[1]) return T('QRS（心室の脱分極）','QRS (ventricular depolarization)');
+  if(t>w.QRS[1]&&t<w.STT[1]) return T('ST〜T波（再分極）','ST–T wave (repolarization)');
+  return T('等電位','Isoelectric');
+}
+const norm=a=>{ a=Math.round(a); return a===-0?0:a; };
+function updateRead(){
+  const v=curVec(), m3=nrm(v), aF=norm(Math.atan2(v[1],v[0])/D), aH=norm(Math.atan2(v[2],v[0])/D);
+  if(live()){
+    const aq=qrsAxis(cur.mp,cur.ms), ah=qrsAxisH(cur.mp,cur.ms);
+    setRead([
+      [T('時刻','Time'),Math.round(st.t)+' ms'],
+      [T('区間','Phase'),phase(cur.p,st.t)],
+      [T('瞬時ベクトル','Instantaneous vector'), m3<0.03?T('ほぼ0','Almost 0'):T('前額面 ','Frontal ')+aF+T('° / 水平面 ','° / Horizontal ')+aH+'°',true],
+      [T('QRS軸（前額面）','QRS axis (frontal)'),norm(aq)+'° '+axisTxt(aq)],
+      [T('QRS軸（水平面）','QRS axis (horizontal)'),norm(ah)+T('°（0°=左、90°=前）','° (0° = left, 90° = anterior)'),true],
+      [T('QRS-T角（ピーク間）','QRS–T angle (peak to peak)'),T('前額面 ','Frontal ')+angBetween(st.mvs.QRS,st.mvs.T,2)+T('° / 空間 ','° / Spatial ')+angBetween(st.mvs.QRS,st.mvs.T,3)+'°',true]
+    ]);
+  } else {
+    const pr=LEADS.map(ld=>proj(v,ld));
+    let hi=0,lo=0; pr.forEach((x,i)=>{ if(x>pr[hi]) hi=i; if(Math.abs(x)<Math.abs(pr[lo])) lo=i; });
+    const none=m3<0.03;
+    setRead([
+      [T('前額面の向き','Frontal direction'),none?'—':aF+'°'],
+      [T('水平面の向き（0°=左、90°=前）','Horizontal direction (0° = left, 90° = anterior)'),none?'—':aH+'°'],
+      [T('大きさ（空間）','Magnitude (spatial)'),m3.toFixed(2)],
+      [T('最大の陽性振れ','Largest positive deflection'),none?'—':LEADS[hi].n],
+      [T('最も小さい振れ（等電位）','Smallest deflection (isoelectric)'),none?'—':LEADS[lo].n+T('（',' (')+(pr[lo]>=0?'+':'−')+Math.abs(pr[lo]).toFixed(2)+T('）',')'),true],
+      [T('QRS-T角（ピーク間）','QRS–T angle (peak to peak)'),T('前額面 ','Frontal ')+angBetween(st.mvs.QRS,st.mvs.T,2)+T('° / 空間 ','° / Spatial ')+angBetween(st.mvs.QRS,st.mvs.T,3)+'°',true]
+    ]);
+  }
+}
+
+/* ---------- state / UI ---------- */
+function draw(){ if(!cur||!fctx) return; drawPlane('front'); drawPlane('horiz'); draw3D(); drawTraces(); updateRead(); }
+function setPreset(i){
+  st.pi=i; const p=PRESETS[i], s=buildSeries(p);
+  cur={p,s,rt:{},pks:{P:peakIn(s,p.win.P),QRS:peakIn(s,p.win.QRS),T:peakIn(s,p.win.STT)}};
+  resetManual(); syncManualUI();
+  document.querySelectorAll('.chip').forEach((b,j)=>b.setAttribute('aria-pressed',String(j===i)));
+  renderNotes();
+  updateTag(); readKey=''; draw();
+}
+function renderNotes(){ $('notes').innerHTML=pnotes(cur.p).map(n=>'<li>'+n+'</li>').join(''); }
+function resetManual(){ st.mvs={}; GROUPS.forEach(g=>{ st.mvs[g]=cur.pks[g].v.slice(); }); cur.rt={}; rebuildManual(); }
+function rebuildManual(){
+  const w=cur.p.win, sc={};
+  GROUPS.forEach(g=>{
+    const pk=cur.pks[g].v, mv=st.mvs[g], mb=nrm(pk), mm=nrm(mv);
+    if(mm>0.01 && mb>1e-6) cur.rt[g]=rotParams(pk,mv);
+    if(!cur.rt[g]) cur.rt[g]={k:[0,0,1],th:0};
+    sc[g]= mb>1e-6 ? mm/mb : 1;
+  });
+  const comps=cur.p.comps.map(c=>{ const g=grpOf(c,w); return Object.assign({},c,{v:applyRot(cur.rt[g],c.v,sc[g])}); });
+  cur.mp=Object.assign({},cur.p,{comps}); cur.ms=buildSeries(cur.mp);
+  refreshMod();
+}
+function isMod(){ return GROUPS.some(g=>nrm([0,1,2].map(i=>st.mvs[g][i]-cur.pks[g].v[i]))>1e-3); }
+function refreshMod(){
+  const m=isMod();
+  $('resetBtn').hidden=!m;
+  renderStCard(); updateJump();
+  $('nTitle').innerHTML=T('この症例の読み方','How to read this case')+'<span>'+plabel(cur.p)+(m?T('（矢印で変更中）',' (arrow edited)'):'')+'</span>';
+}
+let lastMain='play';
+function setMode(m,remote){
+  if(m!=='manual') lastMain=m;
+  st.mode=m; document.body.dataset.mode=m;
+  $('mPlay').setAttribute('aria-pressed',String(m==='play'));
+  $('mManual').setAttribute('aria-pressed',String(m==='manual'));
+  $('mTrace').setAttribute('aria-pressed',String(m==='trace'));
+  $('ctlPlay').hidden=m==='manual'; $('ctlManual').hidden=m!=='manual';
+  $('tHint').hidden=m!=='trace';
+  $('playBtn').hidden=m==='manual';
+  $('speed').hidden=m==='manual';
+  fcv.classList.toggle('manual',m!=='play'); hcv.classList.toggle('manual',m!=='play');
+  $('mHint').hidden=m!=='manual'; $('ctlSel').hidden=m!=='manual';
+  if(m==='play'&&!remote){ st.t=0; setPlaying(true); syncScrubUI(); }
+  setTTitle(); updateJump();
+  syncManualUI(); updateTag(); readKey=''; draw();
+}
+function setTTitle(){ $('tTitle').textContent= st.mode==='manual' ? T('12誘導の波形（矢印に合わせて再計算）','12-lead tracing (recalculated to follow the arrow)') : T('12誘導の波形（左: 肢誘導 / 右: 胸部誘導）','12-lead tracing (left: limb leads / right: chest leads)'); }
+function syncManualUI(){
+  if(!st.mvs) return;
+  const v=st.mvs[st.sel], mf=Math.hypot(v[0],v[1]), a=norm(Math.atan2(v[1],v[0])/D), mx=MAXMAG[st.sel];
+  $('magSl').max=mx; $('zSl').min=-mx; $('zSl').max=mx;
+  $('angSl').value=a; $('angOut').textContent=a+'°';
+  $('magSl').value=mf.toFixed(2); $('magOut').textContent=mf.toFixed(2);
+  $('zSl').value=v[2].toFixed(2); $('zOut').textContent=v[2].toFixed(2);
+  document.querySelectorAll('#waveSel button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.g===st.sel)));
+}
+function setPlaying(b){ st.playing=b; const tx=b?T('一時停止','Pause'):T('再生','Play'); $('playBtn').textContent=tx; document.querySelectorAll('.tPlay').forEach(e=>{ e.textContent=tx; }); }
+function syncScrubUI(){
+  const T=Math.round(st.T); $('scrub').max=st.span; $('scrub').value=T; $('scrubOut').textContent=T+' ms';
+  document.querySelectorAll('.tScrub').forEach(e=>{ e.max=st.span; e.value=T; });
+  document.querySelectorAll('.tOut').forEach(e=>{ e.textContent=T+' ms'; });
+}
+function updateTag(){
+  const ml={play:T('再生','Play'),manual:T('矢印を動かす','Moving the arrow'),trace:T('時刻をなぞる','Tracing through time')}[st.mode];
+  document.querySelectorAll('.caseTag').forEach(e=>{ e.textContent=T('症例: ','Case: ')+plabel(PRESETS[st.pi])+T('（',' (')+ml+T('）',')'); });
+}
+function setView(v){
+  st.view=v; st.focus=null; $('gainBox').hidden=false; $('grid').dataset.view=v;
+  document.querySelectorAll('#viewSel button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.v===v)));
+  resize();
+}
+
+const chips=$('chips');
+PRESETS.forEach((p,i)=>{
+  const b=document.createElement('button'); b.type='button'; b.className='chip'; b.textContent=plabel(p);
+  b.setAttribute('aria-pressed','false'); b.addEventListener('click',()=>setPreset(i)); chips.appendChild(b);
+});
+$('mPlay').addEventListener('click',()=>setMode('play'));
+$('mManual').addEventListener('click',()=>{ if(st.mode==='manual'){ setMode(lastMain); if(lastMain==='trace') setPlaying(false); } else setMode('manual'); });
+$('mTrace').addEventListener('click',()=>{ setMode('trace'); setPlaying(false); });
+$('playBtn').addEventListener('click',()=>setPlaying(!st.playing));
+$('stJump').addEventListener('click',()=>{ const j=JUMPS[cur.p.id]; if(!j) return; st.T=j.t; setPlaying(false); syncScrubUI(); readKey=''; draw(); });
+$('spSl').addEventListener('input',e=>{ st.speed=Math.pow(10,+e.target.value); $('spOut').textContent=st.speed.toFixed(2)+'×'; });
+$('scrub').addEventListener('input',e=>{ st.T=+e.target.value; setPlaying(false); syncScrubUI(); draw(); });
+$('resetBtn').addEventListener('click',()=>{ resetManual(); syncManualUI(); readKey=''; draw(); });
+tcv.addEventListener('click',e=>{
+  if(st.focus!==null){ st.focus=null; $('gainBox').hidden=false; resize(); return; }
+  const r=tcv.getBoundingClientRect(), x=(e.clientX-r.left)*(tW/r.width), y=(e.clientY-r.top)*(tH/r.height);
+  const two=!narrow(), ri=Math.floor((y-TOP)/ROW), rows= two ? (x<tW/2?[0,1,2,3,4,5]:[6,7,8,9,10,11]) : rowsList();
+  if(ri<0||ri>=rows.length) return;
+  st.focus=rows[ri]; $('gainBox').hidden=true; resize();
+});
+$('viewSel').addEventListener('click',e=>{ const b=e.target.closest('button'); if(b) setView(b.dataset.v); });
+function fromSliders(){
+  const a=+$('angSl').value*D, m=+$('magSl').value, z=+$('zSl').value;
+  st.mvs[st.sel]=clampV([m*Math.cos(a),m*Math.sin(a),z],st.sel); rebuildManual();
+  syncManualUI(); draw();
+}
+['angSl','magSl','zSl'].forEach(id=>$(id).addEventListener('input',fromSliders));
+$('waveSel').addEventListener('click',e=>{ const b=e.target.closest('button'); if(!b) return; st.sel=b.dataset.g; syncManualUI(); readKey=''; draw(); });
+
+let dragging=false;
+function pointerVec(e,kind){
+  const cv=kind==='front'?fcv:hcv, r=cv.getBoundingClientRect(), sc=fS/r.width;
+  const x=(e.clientX-r.left)*sc-fS/2, y=(e.clientY-r.top)*sc-fS/2, k=fS*0.39*0.6;
+  const v=st.mvs[st.sel].slice();
+  v[0]=x/k;
+  if(kind==='front') v[1]=y/k; else v[2]=-y/k;
+  st.mvs[st.sel]=clampV(v,st.sel); rebuildManual(); syncManualUI(); draw();
+}
+/* trace mode: the vector motion is fixed; the finger only chooses the time (nearest point on the loop, preferring nearby times) */
+function scrubFromPointer(e,kind){
+  const cv=kind==='front'?fcv:hcv, r=cv.getBoundingClientRect(), sc=fS/r.width, k=fS*0.39*0.6;
+  const px=((e.clientX-r.left)*sc-fS/2)/k, py=((e.clientY-r.top)*sc-fS/2)/k, s=cur.ms, t0=st.t;
+  let bj=0, bc=1e9;
+  for(let j=0;j<s.n;j++){
+    const v=s.V[j], dx=v[0]-px, dy=(kind==='front'?v[1]:-v[2])-py;
+    let dt=Math.abs(j*STEP-t0); dt=Math.min(dt,TMAX-dt);
+    const c=dx*dx+dy*dy+Math.pow(0.35*dt/TMAX,2);
+    if(c<bc){ bc=c; bj=j; }
+  }
+  const nb=Math.floor(st.T/TMAX);
+  st.T=nb*TMAX+bj*STEP; setPlaying(false);
+  syncScrubUI(); readKey=''; draw();
+}
+[[fcv,'front'],[hcv,'horiz']].forEach(([cv,kind])=>{
+  cv.addEventListener('pointerdown',e=>{
+    if(st.mode==='trace'){ dragging=true; cv.setPointerCapture(e.pointerId); scrubFromPointer(e,kind); return; }
+    if(st.mode!=='manual'){ if(e.pointerType!=='mouse') return; setMode('manual'); }
+    dragging=true; cv.setPointerCapture(e.pointerId); pointerVec(e,kind);
+  });
+  cv.addEventListener('pointermove',e=>{
+    if(!dragging) return;
+    if(st.mode==='trace') scrubFromPointer(e,kind); else pointerVec(e,kind);
+  });
+  ['pointerup','pointercancel'].forEach(n=>cv.addEventListener(n,()=>{ dragging=false; }));
+});
+
+$('d3Reset').addEventListener('click',()=>{ st.yaw=-38; st.pitch=22; draw(); });
+let orbit=null;
+dcv.addEventListener('pointerdown',e=>{ orbit={x:e.clientX,y:e.clientY}; dcv.setPointerCapture(e.pointerId); });
+dcv.addEventListener('pointermove',e=>{
+  if(!orbit) return;
+  st.yaw=((st.yaw+(e.clientX-orbit.x)*0.6+180)%360+360)%360-180;
+  st.pitch=Math.max(-85,Math.min(85,st.pitch+(e.clientY-orbit.y)*0.5));
+  orbit={x:e.clientX,y:e.clientY}; draw();
+});
+['pointerup','pointercancel'].forEach(n=>dcv.addEventListener(n,()=>{ orbit=null; }));
+
+let last=performance.now();
+function frame(now){
+  const dt=Math.min(now-last,100); last=now;
+  if(st.playing&&live()){
+    st.T=(st.T+dt*st.speed)%st.span;
+    syncScrubUI();
+    draw();
+  }
+  requestAnimationFrame(frame);
+}
+
+$('gSl').addEventListener('input',e=>{ st.gain=+e.target.value; $('gOut').textContent='×'+st.gain.toFixed(1); draw(); });
+/* ---- screens ---- */
+const SCREENS=['all','vec','ecg','quiz'], solo=(q=>q==='ctl'?'vec':q)(new URLSearchParams(location.search).get('s'));
+function setScreen(n){
+  document.body.dataset.scr=n;
+  document.querySelectorAll('#screenTabs [data-s]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.s===n)));
+  window.scrollTo(0,0); requestAnimationFrame(()=>resize());
+}
+document.querySelectorAll('#screenTabs [data-s]').forEach(b=>b.addEventListener('click',()=>setScreen(b.dataset.s)));
+if(SCREENS.includes(solo)&&solo!=='all') document.body.classList.add('solo');
+const popOK=(()=>{ try{ return window.self===window.top && /^(file:|https?:)$/.test(location.protocol); }catch(e){ return false; } })();
+if(popOK&&!narrow()&&!document.body.classList.contains('solo')) $('pop').hidden=false;
+$('pop').addEventListener('click',e=>{ const b=e.target.closest('[data-pop]'); if(!b) return;
+  window.open(location.href.split('#')[0].split('?')[0]+'?s='+b.dataset.pop+'&lang='+LANG,'ecgvec-'+b.dataset.pop,'popup=yes,width=1100,height=860'); });
+document.querySelectorAll('.tPlay').forEach(b=>b.addEventListener('click',()=>{ setPlaying(!st.playing); publish(); }));
+document.querySelectorAll('.tScrub').forEach(el=>el.addEventListener('input',()=>{ st.T=+el.value; setPlaying(false); syncScrubUI(); draw(); publish(); }));
+
+/* ---- cross-window sync (BroadcastChannel; localStorage events as fallback) ---- */
+const SID=Math.random().toString(36).slice(2);
+let bc=null, applying=false;
+try{ bc=new BroadcastChannel('ecg-vector-sync'); }catch(e){ bc=null; }
+const snap=()=>({id:SID,type:'state',pi:st.pi,mode:st.mode,playing:st.playing,T:st.T,speed:st.speed,sel:st.sel,mvs:st.mvs,gain:st.gain,lang:LANG,ts:Date.now()});
+function post(m){ if(bc){ try{ bc.postMessage(m); }catch(e){} } else { try{ localStorage.setItem('ecg-vector-sync',JSON.stringify(m)); }catch(e){} } }
+function publish(){ if(!applying) post(snap()); }
+function applyState(m){
+  applying=true;
+  try{
+    if(m.lang&&m.lang!==LANG) applyLang(m.lang,true);
+    if(m.pi!==st.pi) setPreset(m.pi);
+    if(m.mvs && JSON.stringify(m.mvs)!==JSON.stringify(st.mvs)){ st.mvs=m.mvs; rebuildManual(); }
+    st.sel=m.sel; st.speed=m.speed; $('spSl').value=Math.log10(st.speed); $('spOut').textContent=st.speed.toFixed(2)+'×';
+    if(m.gain!=null&&m.gain!==st.gain){ st.gain=m.gain; $('gSl').value=st.gain; $('gOut').textContent='×'+(+st.gain).toFixed(1); }
+    if(m.mode!==st.mode) setMode(m.mode,true);
+    setPlaying(m.playing);
+    const adv=(m.playing&&m.mode!=='manual')?(Date.now()-m.ts)*m.speed:0;
+    st.T=(((m.T+adv)%st.span)+st.span)%st.span;
+    syncScrubUI(); syncManualUI(); updateTag(); readKey=''; draw();
+  } finally { applying=false; }
+}
+function onMsg(m){
+  if(!m||m.id===SID) return;
+  $('linkBadge').hidden=false;
+  if(m.type==='hello'){ publish(); return; }
+  if(m.type==='state') applyState(m);
+}
+if(bc) bc.onmessage=e=>onMsg(e.data);
+else window.addEventListener('storage',e=>{ if(e.key==='ecg-vector-sync'&&e.newValue){ try{ onMsg(JSON.parse(e.newValue)); }catch(_){} } });
+// broadcast on user actions (handlers registered earlier have already updated the state)
+chips.addEventListener('click',publish);
+['mPlay','mManual','mTrace','playBtn','resetBtn','stJump'].forEach(id=>$(id).addEventListener('click',publish));
+$('waveSel').addEventListener('click',publish);
+['spSl','scrub','gSl','angSl','magSl','zSl'].forEach(id=>$(id).addEventListener('input',publish));
+[fcv,hcv].forEach(cv=>{ cv.addEventListener('pointerdown',publish); cv.addEventListener('pointermove',()=>{ if(dragging) publish(); }); });
+setInterval(()=>{ if(document.hasFocus()&&st.playing&&live()) publish(); },2000);
+
+
+
+/* ---------- quiz ---------- */
+const QLIMB=LEADS.filter(l=>l.k==='f'), QMI=['stemi','lat','ant','post'];
+const QWHY={
+  stemi:['ST部ベクトルは下壁（右下）向きです。下を向く II・III・aVF が上昇し、反対側の aVL が下降します。','The ST vector points to the inferior wall (down and to the right). II, III and aVF, which face down, rise, and aVL on the opposite side falls.'],
+  lat:['ST部ベクトルは側壁（左・やや上）向きです。左を向く I・aVL・V5・V6 が上昇し、反対側の III・aVF が下降します。','The ST vector points to the lateral wall (left and slightly up). I, aVL, V5 and V6, which face left, rise, and III and aVF on the opposite side fall.'],
+  ant:['ST部ベクトルは前向きです。前を向く V2〜V4 が上昇し、反対側の II・III・aVF が下降します。','The ST vector points anteriorly. V2–V4, which face forward, rise, and II, III and aVF on the opposite side fall.'],
+  post:['ST部ベクトルは後ろ向き（背中側）です。前向きの成分を持つ胸部誘導（模型では V1〜V4）は、ベクトルから遠ざかって下降します。背中側から見ればST上昇の鏡像です。','The ST vector points posteriorly (toward the back). The chest leads with an anterior component (V1–V4 in the model) face away from it and fall. Seen from the back, this is the mirror image of ST elevation.']
+};
+let qTab=1, q1=null, q2=null, qLastK=-1, qLastMi=-1;
+const qSym=v=>v===1?'↑':(v===-1?'↓':T('＝','='));
+const q1Exp=(th,a)=>{ const c=Math.cos((th-a)*D); return c>=.5?1:(c<=-.5?-1:0); };
+function q1New(){
+  let k; do{ k=Math.floor(Math.random()*12); }while(k===qLastK); qLastK=k;
+  let th=15+30*k; if(th>180) th-=360;
+  q1={th,ans:{},done:false,sel:null}; renderQuiz();
+}
+function q2New(){
+  let k; do{ k=Math.floor(Math.random()*QMI.length); }while(k===qLastMi); qLastMi=k;
+  const order=QMI.slice().sort(()=>Math.random()-.5);
+  q2={id:QMI[k],order,picked:null}; renderQuiz();
+}
+function stVecOf(id){ return PRESETS.find(p=>p.id===id).comps.find(c=>ST_SITES.includes(c.site)); }
+function drawDial(){
+  const cv=$('qDial'); if(!cv||!q1) return;
+  const S=Math.min(300,(cv.parentElement.clientWidth||300)-8), dpr=window.devicePixelRatio||1; cv.width=S*dpr; cv.height=S*dpr; cv.style.width=S+'px'; cv.style.height=S+'px';
+  const c=cv.getContext('2d'); c.setTransform(dpr,0,0,dpr,0,0); c.clearRect(0,0,S,S);
+  const cx=S/2, cy=S/2, R=S*.37;
+  c.strokeStyle=colors.line; c.lineWidth=1; c.beginPath(); c.arc(cx,cy,R,0,Math.PI*2); c.stroke();
+  c.font='600 12px '+MONO; c.textAlign='center'; c.textBaseline='middle';
+  QLIMB.forEach(ld=>{ const a=ld.a*D, ux=Math.cos(a), uy=Math.sin(a);
+    c.strokeStyle=colors.line; c.setLineDash([3,3]); c.beginPath(); c.moveTo(cx-ux*R,cy-uy*R); c.lineTo(cx,cy); c.stroke(); c.setLineDash([]);
+    c.strokeStyle=colors.muted; c.beginPath(); c.moveTo(cx,cy); c.lineTo(cx+ux*R,cy+uy*R); c.stroke();
+    c.fillStyle=colors.ink; c.fillText(ld.n,cx+ux*(R+17),cy+uy*(R+13)); });
+  const a=q1.th*D, ex=cx+Math.cos(a)*R*.92, ey=cy+Math.sin(a)*R*.92, ex0=ex, ey0=ey;
+  c.strokeStyle=colors.accent; c.fillStyle=colors.accent; c.lineWidth=4; c.lineCap='round';
+  c.beginPath(); c.moveTo(cx,cy); c.lineTo(ex,ey); c.stroke();
+  c.beginPath(); c.moveTo(ex,ey); c.lineTo(ex-Math.cos(a-.4)*14,ey-Math.sin(a-.4)*14); c.lineTo(ex-Math.cos(a+.4)*14,ey-Math.sin(a+.4)*14); c.closePath(); c.fill();
+  c.lineCap='butt'; c.fillStyle=colors.ink; c.beginPath(); c.arc(cx,cy,3,0,Math.PI*2); c.fill();
+  if(q1.done&&q1.sel){
+    const ld=QLIMB.find(l=>l.n===q1.sel), b=ld.a*D, ux=Math.cos(b), uy=Math.sin(b), La=R*.92, cs=Math.cos(a-b), f=cs*La;
+    const fx=cx+ux*f, fy=cy+uy*f, ex=q1Exp(q1.th,ld.a);
+    c.strokeStyle=colors.ink; c.lineWidth=2; c.globalAlpha=.9; c.beginPath(); c.moveTo(cx-ux*R,cy-uy*R); c.lineTo(cx+ux*R,cy+uy*R); c.stroke();
+    // "almost unchanged" zone: within half the arrow length from the centre
+    c.strokeStyle=colors.muted; c.lineWidth=6; c.globalAlpha=.35; c.lineCap='round';
+    c.beginPath(); c.moveTo(cx-ux*La*.5,cy-uy*La*.5); c.lineTo(cx+ux*La*.5,cy+uy*La*.5); c.stroke(); c.lineCap='butt';
+    c.globalAlpha=1; c.fillStyle=colors.ink; c.font='700 12px '+MONO; c.fillText('+',cx+ux*(R-8)-uy*9,cy+uy*(R-8)+ux*9); c.fillText('−',cx-ux*(R-8)-uy*9,cy-uy*(R-8)+ux*9);
+    c.strokeStyle=colors.accent; c.lineWidth=1.5; c.setLineDash([4,3]); c.beginPath(); c.moveTo(ex0,ey0); c.lineTo(fx,fy); c.stroke(); c.setLineDash([]);
+    c.fillStyle=ex===1?colors.teal:(ex===-1?colors.accent:colors.muted); c.beginPath(); c.arc(fx,fy,5,0,Math.PI*2); c.fill();
+    const ox=-uy, oy=ux, sd=(ox*(ex0-fx)+oy*(ey0-fy))>0?-1:1;
+    c.font='700 15px '+MONO; c.fillText(qSym(ex),fx+ox*14*sd,fy+oy*14*sd);
+  }
+  cv.setAttribute('aria-label',T('ST部ベクトルの矢印と、6つの肢誘導の軸','An arrow for the ST vector and the six limb-lead axes'));
+}
+function renderQuiz(){
+  if(!$('quizCard')) return;
+  $('qTitle').textContent=T('確認クイズ','Quick quiz');
+  const tb=document.querySelectorAll('#qTabs button');
+  tb[0].textContent=T('矢印 → 誘導','Arrow → leads'); tb[1].textContent=T('ST変化 → 部位','ST pattern → wall');
+  tb.forEach(b=>b.setAttribute('aria-pressed',String(+b.dataset.q===qTab)));
+  $('q1').hidden=qTab!==1; $('q2').hidden=qTab!==2;
+  if(qTab===1){
+    if(!q1){ q1New(); return; }
+    $('q1Text').textContent=T('この矢印がST部ベクトルだとします。各肢誘導のSTは、上昇・下降・ほぼ変化なしのどれでしょう。誘導のボタンをタップして、↑（上昇）、＝（ほぼ変化なし）、↓（下降）を選んでください。',
+      'Suppose this arrow is the ST vector. For each limb lead, is the ST elevated, depressed or almost unchanged? Tap a lead button to choose ↑ (elevation), = (almost unchanged) or ↓ (depression).');
+    $('qLeads').innerHTML='';
+    QLIMB.forEach(ld=>{
+      const b=document.createElement('button'); b.type='button'; const ans=q1.ans[ld.n], ex=q1Exp(q1.th,ld.a);
+      b.textContent=ld.n+' '+(ans===undefined?'？':qSym(ans))+(q1.done&&ans!==ex?' → '+qSym(ex):'');
+      if(q1.done) b.className=((ans===ex)?'ok':'bad')+(q1.sel===ld.n?' sel':'');
+      b.addEventListener('click',()=>{ if(q1.done){ q1.sel=(q1.sel===ld.n?null:ld.n); renderQuiz(); return; } const cyc=[1,0,-1], i=cyc.indexOf(q1.ans[ld.n]); q1.ans[ld.n]=cyc[(i+1)%3]; renderQuiz(); });
+      $('qLeads').appendChild(b);
+    });
+    $('q1Check').textContent=T('答え合わせ','Check'); $('q1Check').disabled=q1.done;
+    $('q1Next').textContent=T('次の問題','Next question');
+    if(q1.done){
+      const n=QLIMB.filter(ld=>q1.ans[ld.n]===q1Exp(q1.th,ld.a)).length;
+      $('q1Res').textContent=T('正解は '+n+' / 6 です。','Score: '+n+' / 6. ')+T('図には、選んだ誘導（黒いボタン）の軸へ、矢印の先から垂線（点線）を引いています。ほかの誘導のボタンを押すと切り替わります。垂線の足が、誘導軸の＋側で、矢印の長さの半分より外にあれば ↑、−側で半分より外にあれば ↓、灰色の帯（中心から半分以内）にあれば ＝ と判定しています。半分の長さは、角度で言えば60°と120°にあたります（cos 60° = 0.5）。これが「矢印の影」です。',
+        'The figure draws a perpendicular (dotted) from the arrow tip to the axis of the selected lead (dark button); tap another lead button to switch. If its foot lies on the + side beyond half the arrow length, the answer is ↑; on the − side beyond half, ↓; inside the grey band (within half from the centre), =. Half the length corresponds to 60° and 120° (cos 60° = 0.5). This is the arrow’s “shadow”.');
+    } else $('q1Res').textContent='';
+    drawDial();
+  } else {
+    if(!q2){ q2New(); return; }
+    $('q2Text').textContent=T('この模型の4つの梗塞症例のうち、ST変化が次のようになるのはどれでしょう（上昇・下降は模型の中の目安で、臨床のST基準ではありません）。','Among the four MI cases in this model, which one gives this ST pattern? (Elevation and depression are thresholds inside the model, not clinical ST criteria.)');
+    const tx=stText(stVecOf(q2.id));
+    $('q2Pat').innerHTML=[[T('ST上昇','ST elevation'),tx.up],[T('ST下降','ST depression'),tx.dn]].map(i=>'<div class="wide"><small>'+i[0]+'</small><strong>'+i[1]+'</strong></div>').join('');
+    $('q2Opts').innerHTML='';
+    q2.order.forEach(id=>{
+      const b=document.createElement('button'); b.type='button'; b.textContent=plabel(PRESETS.find(p=>p.id===id));
+      if(q2.picked){ if(id===q2.id) b.className='ok'; else if(id===q2.picked) b.className='bad'; }
+      b.addEventListener('click',()=>{ if(q2.picked) return; q2.picked=id; renderQuiz(); });
+      $('q2Opts').appendChild(b);
+    });
+    const done=!!q2.picked;
+    $('q2Go').hidden=!done; $('q2Next').hidden=!done;
+    $('q2Go').textContent=T('この症例で確認','Show this case'); $('q2Next').textContent=T('次の問題','Next question');
+    $('q2Res').textContent=done?((q2.picked===q2.id?T('正解です。','Correct. '):T('残念、正解は「'+plabel(PRESETS.find(p=>p.id===q2.id))+'」です。','Not quite: it is “'+plabel(PRESETS.find(p=>p.id===q2.id))+'”. '))+T(QWHY[q2.id][0],QWHY[q2.id][1])):'';
+  }
+}
+document.querySelectorAll('#qTabs button').forEach(b=>b.addEventListener('click',()=>{ qTab=+b.dataset.q; renderQuiz(); }));
+$('q1Check').addEventListener('click',()=>{ if(q1&&!q1.done){ q1.done=true; const w=QLIMB.find(ld=>q1.ans[ld.n]!==q1Exp(q1.th,ld.a)); q1.sel=(w||QLIMB[0]).n; renderQuiz(); } });
+$('q1Next').addEventListener('click',()=>q1New());
+$('q2Next').addEventListener('click',()=>q2New());
+$('q2Go').addEventListener('click',()=>{
+  const i=PRESETS.findIndex(p=>p.id===q2.id); if(i<0) return;
+  if(st.mode==='manual') setMode('play',true);
+  setPreset(i); st.T=JUMPS[q2.id]?JUMPS[q2.id].t:st.T; setPlaying(false); syncScrubUI(); readKey=''; draw(); publish();
+  if(!document.body.classList.contains('solo')&&document.body.dataset.scr!=='all') setScreen('vec'); else window.scrollTo(0,0);
+});
+
+/* ---- language switch ---- */
+function applyLang(l,remote){
+  LANG=(l==='en')?'en':'ja';
+  document.documentElement.setAttribute('lang',LANG); document.documentElement.dataset.lang=LANG;
+  document.title=T('心電図ベクトル射影','ECG Vector Projection');
+  [['data-en-aria','aria-label','enAria','jaAria'],['data-en-title','title','enTitle','jaTitle']].forEach(a=>{
+    document.querySelectorAll('['+a[0]+']').forEach(el=>{
+      if(el.dataset[a[3]]===undefined) el.dataset[a[3]]=el.getAttribute(a[1])||'';
+      el.setAttribute(a[1],LANG==='en'?el.dataset[a[2]]:el.dataset[a[3]]);
+    });
+  });
+  document.querySelectorAll('[data-setlang]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.setlang===LANG)));
+  document.querySelectorAll('.chip').forEach((b,j)=>{ b.textContent=plabel(PRESETS[j]); });
+  if(cur){ renderNotes(); refreshMod(); }
+  renderQuiz();
+  setTTitle(); setPlaying(st.playing); updateTag(); readKey='';
+  if(!remote){ try{ localStorage.setItem('ecg-vector-lang',LANG); }catch(e){} }
+  resize(); draw();
+}
+document.querySelectorAll('[data-setlang]').forEach(b=>b.addEventListener('click',()=>{ applyLang(b.dataset.setlang); publish(); }));
+
+loadColors();
+new MutationObserver(()=>{ loadColors(); draw(); drawDial(); }).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+if(window.matchMedia) matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{ loadColors(); draw(); });
+if(window.ResizeObserver){ const ro=new ResizeObserver(()=>resize()); ro.observe($('fwrap')); ro.observe($('hwrap')); ro.observe($('dwrap')); ro.observe($('twrap')); }
+window.addEventListener('resize',resize);
+setPreset(0);
+document.body.dataset.mode=st.mode; updateTag();
+setPlaying(st.playing);
+syncScrubUI();
+setScreen(SCREENS.includes(solo)?solo:'all');
+applyLang(LANG,true);
+requestAnimationFrame(frame);
+post({id:SID,type:'hello',ts:Date.now()});
+})();
+</script>
+</body>
+</html>
